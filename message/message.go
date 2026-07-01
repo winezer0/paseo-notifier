@@ -51,8 +51,12 @@ func buildFinishedContent(event agentwatcher.AgentEvent, msg messages) string {
 		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUser, formatStrTime(a.LastUserMessageAt)))
 	}
 	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldCompleted, formatTime(a.AttentionTimestamp)))
+	startTime := a.CreatedAt
+	if a.LastUserMessageAt != "" {
+		startTime = a.LastUserMessageAt
+	}
 	if a.CreatedAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldDuration, calcDuration(a.CreatedAt, a.AttentionTimestamp)))
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldDuration, calcDuration(startTime, a.AttentionTimestamp)))
 	}
 	if a.UpdatedAt != "" {
 		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldUpdated, formatStrTime(a.UpdatedAt)))
@@ -87,8 +91,12 @@ func buildErrorContent(event agentwatcher.AgentEvent, msg messages) string {
 		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUser, formatStrTime(a.LastUserMessageAt)))
 	}
 	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldFailedAt, formatTime(a.AttentionTimestamp)))
+	startTime := a.CreatedAt
+	if a.LastUserMessageAt != "" {
+		startTime = a.LastUserMessageAt
+	}
 	if a.CreatedAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldDuration, calcDuration(a.CreatedAt, a.AttentionTimestamp)))
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldDuration, calcDuration(startTime, a.AttentionTimestamp)))
 	}
 	if a.UpdatedAt != "" {
 		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldUpdated, formatStrTime(a.UpdatedAt)))
@@ -131,7 +139,7 @@ func formatStrTime(ts string) string {
 	if err != nil {
 		return ts
 	}
-	return t.Format("2006-01-02 15:04:05")
+	return t.Local().Format("2006-01-02 15:04:05")
 }
 
 func formatTime(ts *string) string {
@@ -142,7 +150,7 @@ func formatTime(ts *string) string {
 	if err != nil {
 		return *ts
 	}
-	return t.Format("2006-01-02 15:04:05")
+	return t.Local().Format("2006-01-02 15:04:05")
 }
 
 func calcDuration(start string, end *string) string {
