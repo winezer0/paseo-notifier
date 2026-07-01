@@ -1,0 +1,73 @@
+name: Release Build
+
+on:
+  release:
+    types: [published, prereleased]
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.0.1)'
+        required: true
+        type: string
+        default: 'v0.0.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build for ${{ matrix.os }}${{ matrix.suffix }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goarch: amd64
+            asset_name: paseo-notifier-linux-amd64
+            suffix: ''
+          - os: windows-latest
+            goarch: amd64
+            asset_name: paseo-notifier-windows-amd64
+            suffix: '.exe'
+          - os: macos-latest
+            goarch: arm64
+            asset_name: paseo-notifier-darwin-arm64
+            suffix: ''
+          - os: macos-latest
+            goarch: amd64
+            asset_name: paseo-notifier-darwin-amd64
+            suffix: ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - name: Build binary
+        shell: bash
+        run: |
+          go build -v -trimpath -ldflags "-s -w" -o ${{ matrix.asset_name }}${{ matrix.suffix }} ./cmd/paseo-notifier
+        env:
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Upload Release Asset (from existing release)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset_name }}${{ matrix.suffix }}
+
+      - name: Create or Update Release (from manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: ${{ contains(github.event.inputs.version, 'alpha') || contains(github.event.inputs.version, 'beta') || contains(github.event.inputs.version, 'rc') }}
+          files: ${{ matrix.asset_name }}${{ matrix.suffix }}
