@@ -1,0 +1,64 @@
+# paseo-notifier 配置文件
+#
+# 搜索顺序（优先级从高到低）：
+#   1. --config 参数指定的路径
+#   2. 程序所在目录下的 paseo-notifier.yaml
+#   3. 以上都找不到则使用内置默认配置（仅日志输出）
+
+# 监控相关配置
+monitor:
+  # MCP 守护进程地址
+  daemon_url: "http://127.0.0.1:6767/mcp/agents"
+  # 轮询间隔（Go time.Duration 格式）
+  interval: "5s"
+
+# 日志格式，可选 text 或 json
+log_format: "text"
+
+# 日志文件路径（默认：程序所在目录下的 paseo-notifier.log）
+# 留空则使用默认路径，日志文件超 10MB 自动轮转清理
+log_path: ""
+
+# 是否同时输出日志到控制台（默认 true）
+# 前台运行时建议开启，系统服务模式可设为 false 避免无控制台输出
+log_console: true
+
+# 通知消息语言（默认 auto）
+# auto: 自动检测系统语言（中文系统→zh，其他→en）
+# zh:   中文
+# en:   英文
+language: "auto"
+
+# 通知供应商配置
+# providers 是一个数组，可以同时配置多个供应商
+# 所有供应商会同时发送通知
+# 不配置任何供应商时，事件仅输出到日志
+notifier:
+  providers:
+    # ---- 类型: dingtalk ----
+    # 钉钉自定义机器人（Webhook + 加签）
+    - type: "dingtalk"
+      config:
+        access_token: ""
+        secret: ""
+
+    # ---- 类型: lark_webhook ----
+    # 飞书群聊机器人（Webhook 模式）
+    # 在飞书群中添加"自定义机器人"，获取 Webhook URL
+    # - type: "lark_webhook"
+    #   config:
+    #     webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-id"
+
+    # ---- 类型: lark_app ----
+    # 飞书自应用（支持指定接收者）
+    # 需要在飞书开放平台创建应用，开启 im:message 权限
+    # receivers 支持的类型：open_id, user_id, union_id, email, chat_id
+    # - type: "lark_app"
+    #   config:
+    #     app_id: "cli_your-app-id"
+    #     app_secret: "your-app-secret"
+    #     receivers:
+    #       - type: chat_id
+    #         value: "oc_your-chat-id"
+    #       - type: user_id
+    #         value: "your-user-id"
