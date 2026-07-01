@@ -21,10 +21,10 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/kardianos/service"
 	"github.com/nikoksr/notify"
-	"github.com/winezere0/paseo-notifier/agentwatcher"
-	"github.com/winezere0/paseo-notifier/config"
-	"github.com/winezere0/paseo-notifier/logger"
-	"github.com/winezere0/paseo-notifier/message"
+	"github.com/winezer0/paseo-notifier/agentwatcher"
+	"github.com/winezer0/paseo-notifier/config"
+	"github.com/winezer0/paseo-notifier/logger"
+	"github.com/winezer0/paseo-notifier/message"
 )
 
 // cliOptions 命令行参数

@@ -9,6 +9,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// AppName 应用名称
+const AppName = "paseo-notifier"
+const appConfig = AppName + ".yaml"
+const appLogPath = AppName + ".log"
+const Version = "0.0.2"
+
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
 	DaemonURL string `yaml:"daemon_url"`
@@ -88,12 +94,6 @@ func DefaultConfig() *Config {
 		LogConsole: &t,
 	}
 }
-
-// AppName 应用名称
-const AppName = "paseo-notifier"
-const appConfig = AppName + ".yaml"
-const appLogPath = AppName + ".log"
-const Version = "0.0.1"
 
 // AppDir 返回程序所在目录
 func AppDir() string {

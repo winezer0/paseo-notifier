@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/nikoksr/notify"
-	"github.com/winezere0/paseo-notifier/agentwatcher"
+	"github.com/winezer0/paseo-notifier/agentwatcher"
 )
 
 // NotifyNotifier 将 notify.Service 适配为 agentwatcher.Notifier

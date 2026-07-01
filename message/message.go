@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winezere0/paseo-notifier/agentwatcher"
-	"github.com/winezere0/paseo-notifier/config"
+	"github.com/winezer0/paseo-notifier/agentwatcher"
+	"github.com/winezer0/paseo-notifier/config"
 )
 
 // currentLang 全局语言设置，由 SetLang 初始化

@@ -12,42 +12,23 @@ The solution: poll the Paseo daemon's Agent status via MCP API, and send notific
 
 Built on the [notify](https://github.com/nikoksr/notify) library, it supports multiple notification methods. Currently supports DingTalk, Feishu (Lark) Webhook, and Feishu App notifications. See below for registering additional provider types.
 
-## Architecture
+## Quick Install
 
+```bash
+go install github.com/winezer0/paseo-notifier/cmd/paseo-notifier@latest
 ```
-paseo-notifier/
-├── agentwatcher/                   # Agent status monitoring
-│   ├── watcher.go                     MCP API polling + state diff engine
-│   └── watcher_test.go
-├── cmd/paseo-notifier/             # CLI entry point
-│   └── main.go                        program implements service.Interface
-│                                      install/uninstall/start/stop/restart
-│                                      build tag: -tags noservice for no-service build
-├── config/                         # Configuration management
-│   ├── config.go                      YAML config loading
-│   └── default.go                     --init writes default config
-├── embeds/                         # Embedded resources
-│   ├── config.yaml                    Fully commented default config template
-│   └── embeds.go                      //go:embed declaration
-├── logger/                         # Logging
-│   ├── init.go                        InitLogger initialization
-│   └── filelog.go                     File logging + 10MB auto-rotation
-├── message/                        # Notification messages
-│   ├── message.go                     Event → formatted message text
-│   ├── i18n.go                        Bilingual text + language detection
-│   ├── i18n_windows.go                Windows system language detection
-│   ├── i18n_unix.go                   Unix system language detection
-│   ├── notifier.go                    Notifier builder + startup notification
-│   ├── notifynotifier.go              NotifyNotifier adapter
-│   ├── provider.go                    Provider registry
-│   ├── provider_dingtalk.go           DingTalk Webhook
-│   ├── provider_lark_webhook.go       Feishu Webhook
-│   ├── provider_lark_app.go           Feishu App
-│   ├── notifier_test.go
-│   └── provider_test.go
-├── README.md
-└── go.mod / go.sum
+
+The binary is installed to `$GOPATH/bin` (or `$GOBIN`). Then configure and start:
+
+```bash
+paseo-notifier --init          # Generate config file to program directory
+# Edit paseo-notifier.yaml with your notification settings
+paseo-notifier install         # Register as system service
+paseo-notifier start           # Start service
 ```
+
+
+## Architecture
 
 ### Data Flow
 
@@ -162,6 +143,7 @@ notifier:
 ### Default Behavior
 
 When no notification provider is configured, agent events are logged only (console and file), with no external notifications sent.
+
 
 ## Usage
 

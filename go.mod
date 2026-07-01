@@ -1,4 +1,4 @@
-module github.com/winezere0/paseo-notifier
+module github.com/winezer0/paseo-notifier
 
 go 1.26
 

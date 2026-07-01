@@ -12,42 +12,23 @@ Paseo Agent 状态通知器。
 
 使用notify库，支持多种通知方式，当前支持 dingtalk feishu lark 格式的通知配置，注册其他类型的通知请看下文.
 
-## 架构
+## 快速安装
 
+```bash
+go install github.com/winezer0/paseo-notifier/cmd/paseo-notifier@latest
 ```
-paseo-notifier/
-├── agentwatcher/                   # Agent 状态监控
-│   ├── watcher.go                     MCP API 轮询 + 状态对比引擎
-│   └── watcher_test.go
-├── cmd/paseo-notifier/             # CLI 入口
-│   └── main.go                        program 实现 service.Interface
-│                                      含 install/uninstall/start/stop/restart
-│                                      支持 build tag: -tags noservice 编译无服务版
-├── config/                         # 配置管理
-│   ├── config.go                      YAML 配置加载
-│   └── default.go                     --init 写入默认配置
-├── embeds/                         # 内嵌资源
-│   ├── config.yaml                    带完整注释的默认配置模板
-│   └── embeds.go                      //go:embed 声明
-├── logger/                         # 日志
-│   ├── init.go                        InitLogger 初始化
-│   └── filelog.go                     文件日志 + 10MB 自动轮转
-├── message/                        # 通知消息
-│   ├── message.go                     事件 → 格式化消息文本
-│   ├── i18n.go                        中英双语文本 + 语言检测
-│   ├── i18n_windows.go                Windows 系统语言检测
-│   ├── i18n_unix.go                   Unix 系统语言检测
-│   ├── notifier.go                    通知器构建 + 启动通知
-│   ├── notifynotifier.go              NotifyNotifier 适配器
-│   ├── provider.go                    供应商注册中心
-│   ├── provider_dingtalk.go           钉钉 Webhook
-│   ├── provider_lark_webhook.go       飞书 Webhook
-│   ├── provider_lark_app.go           飞书自应用
-│   ├── notifier_test.go
-│   └── provider_test.go
-├── README.md
-└── go.mod / go.sum
+
+安装后二进制在 `$GOPATH/bin`（或 `$GOBIN`），继续配置和启动：
+
+```bash
+paseo-notifier --init          # 生成配置文件到程序所在目录
+# 编辑 paseo-notifier.yaml 填入通知配置
+paseo-notifier install         # 注册为系统服务
+paseo-notifier start           # 启动服务
 ```
+
+
+## 架构
 
 ### 数据流
 
@@ -162,6 +143,7 @@ notifier:
 ### 默认行为
 
 不配置任何通知供应商时，Agent 事件仅输出到日志（控制台和文件），不发送外部通知。
+
 
 ## 使用
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/winezere0/paseo-notifier/embeds"
+	"github.com/winezer0/paseo-notifier/embeds"
 )
 
 func WriteDefaultConfig(cfgPath string) error {

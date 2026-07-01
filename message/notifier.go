@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/nikoksr/notify"
-	"github.com/winezere0/paseo-notifier/agentwatcher"
-	"github.com/winezere0/paseo-notifier/config"
+	"github.com/winezer0/paseo-notifier/agentwatcher"
+	"github.com/winezer0/paseo-notifier/config"
 )
 
 // noopNotifier 不执行任何通知操作
