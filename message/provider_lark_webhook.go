@@ -17,6 +17,7 @@ type larkWebhookConfig struct {
 	WebhookURL string `yaml:"webhook_url"`
 }
 
+// newLarkWebhookProvider 根据 YAML 配置创建飞书 Webhook 通知服务
 func newLarkWebhookProvider(rawCfg yaml.Node) (notify.Notifier, error) {
 	var cfg larkWebhookConfig
 	if err := rawCfg.Decode(&cfg); err != nil {

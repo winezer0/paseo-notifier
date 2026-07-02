@@ -17,8 +17,8 @@ var (
 	providerGblReg = make(map[string]ProviderFactory)
 )
 
-// RegisterProvider 注册一个通知供应商工厂
-// typ 为供应商类型名称（如 dingtalk、lark_webhook），对应配置中的 type 字段
+// RegisterProvider 注册指定类型的通知供应商工厂
+// 如果 factory 为 nil 或类型已注册则会 panic
 func RegisterProvider(typ string, factory ProviderFactory) {
 	providerMu.Lock()
 	defer providerMu.Unlock()
@@ -31,7 +31,7 @@ func RegisterProvider(typ string, factory ProviderFactory) {
 	providerGblReg[typ] = factory
 }
 
-// GetProvider 根据类型名查找已注册的供应商工厂
+// GetProvider 根据类型标识查找已注册的供应商工厂
 func GetProvider(typ string) (ProviderFactory, bool) {
 	providerMu.RLock()
 	defer providerMu.RUnlock()
@@ -39,7 +39,7 @@ func GetProvider(typ string) (ProviderFactory, bool) {
 	return f, ok
 }
 
-// RegisteredProviders 返回所有已注册的供应商类型列表
+// RegisteredProviders 返回所有已注册供应商类型标识的列表
 func RegisteredProviders() []string {
 	providerMu.RLock()
 	defer providerMu.RUnlock()

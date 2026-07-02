@@ -37,10 +37,10 @@ notifier:
   providers:
     # ---- 类型: dingtalk ----
     # 钉钉自定义机器人（Webhook + 加签）
-    - type: "dingtalk"
-      config:
-        access_token: ""
-        secret: ""
+    # - type: "dingtalk"
+    #   config:
+    #     access_token: ""
+    #     secret: ""
 
     # ---- 类型: lark_webhook ----
     # 飞书群聊机器人（Webhook 模式）

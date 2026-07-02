@@ -14,6 +14,7 @@ import (
 // noopNotifier 不执行任何通知操作
 type noopNotifier struct{}
 
+// Notify 实现了 agentwatcher.Notifier，仅记录日志不发送实际通知
 func (n *noopNotifier) Notify(event agentwatcher.AgentEvent) error {
 	slog.Debug("event received but no notifier configured",
 		"type", event.Type,
@@ -21,8 +22,8 @@ func (n *noopNotifier) Notify(event agentwatcher.AgentEvent) error {
 	return nil
 }
 
-// BuildNotifier 根据配置构建通知器，支持多个供应商同时使用
-// 没有配置有效供应商时返回 noopNotifier，日志由独立的 logger 处理
+// BuildNotifier 根据配置构建通知器，支持同时使用多个供应商
+// 未配置有效供应商时返回 noopNotifier
 func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	providers := cfg.Notifier.Providers
 
@@ -58,7 +59,7 @@ func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	return &NotifyNotifier{}
 }
 
-// SendStartupNotification 发送启动通知
+// SendStartupNotification 发送启动通知，仅当通知器为 NotifyNotifier 时实际发送
 func SendStartupNotification(notifier agentwatcher.Notifier) {
 	msg := getMessages(currentLang)
 	if _, ok := notifier.(*NotifyNotifier); ok {
@@ -75,7 +76,7 @@ func SendStartupNotification(notifier agentwatcher.Notifier) {
 	}
 }
 
-// BuildSystemNotify 构建系统事件通知（断连/重连）
+// BuildSystemNotify 构建系统事件通知的主题和内容（断连/重连）
 func BuildSystemNotify(disconnected bool, daemonURL string) (subject, content string) {
 	msg := getMessages(currentLang)
 	if disconnected {

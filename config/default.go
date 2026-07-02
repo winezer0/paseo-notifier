@@ -8,6 +8,8 @@ import (
 	"github.com/winezer0/paseo-notifier/embeds"
 )
 
+// WriteDefaultConfig 将内嵌的默认配置 YAML 写入指定路径
+// 如果 cfgPath 为空，则使用程序目录下的默认路径
 func WriteDefaultConfig(cfgPath string) error {
 	if cfgPath == "" {
 		cfgPath = AppConfigPath()

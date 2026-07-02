@@ -33,6 +33,9 @@ func InitLogger(logPath, format string, logConsole bool, level slog.Level) error
 			return fmt.Errorf("create rotate log writer failed, path=%s", logPath)
 		}
 		// 保存可关闭句柄，程序退出统一 Close()
+		if GlobalLogWriter != nil {
+			GlobalLogWriter.Close()
+		}
 		GlobalLogWriter = rw
 		writers = append(writers, rw)
 	}
@@ -70,7 +73,7 @@ func InitLogger(logPath, format string, logConsole bool, level slog.Level) error
 	return nil
 }
 
-// CloseLogger 关闭日志文件句柄，程序退出调用
+// CloseLogger 关闭全局日志写入器（如果存在）
 func CloseLogger() {
 	if GlobalLogWriter != nil {
 		_ = GlobalLogWriter.Close()

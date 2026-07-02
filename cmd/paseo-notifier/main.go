@@ -43,6 +43,7 @@ var serviceActions = map[string]string{
 	"restart":   "restart system service",
 }
 
+// printExtraHelp 打印扩展帮助信息，包括服务管理命令和配置文件搜索顺序
 func printExtraHelp(parser *flags.Parser) {
 	parser.WriteHelp(os.Stdout)
 	fmt.Println()
@@ -57,6 +58,7 @@ func printExtraHelp(parser *flags.Parser) {
 	fmt.Println("  3. Built-in default config (log output only)")
 }
 
+// parseCLI 解析命令行参数，返回选项结构和可选的服务管理命令
 func parseCLI() (opts *cliOptions, action string) {
 	opts = &cliOptions{}
 	parser := flags.NewParser(opts, flags.Default)
@@ -131,7 +133,7 @@ func main() {
 	}
 
 	// 服务管理命令（install / uninstall / start / stop / restart）
-	if _, valid := map[string]bool{"install": true, "uninstall": true, "start": true, "stop": true, "restart": true}[action]; !valid {
+	if _, valid := serviceActions[action]; !valid {
 		fmt.Fprintf(os.Stderr, "unknown command: %q\n", action)
 		fmt.Fprintf(os.Stderr, "available commands: install, uninstall, start, stop, restart, run\n")
 		os.Exit(1)
@@ -160,11 +162,8 @@ type program struct {
 	started  bool
 }
 
+// Start 实现 service.Interface.Start，加载配置、初始化日志、构建通知器、启动监控
 func (p *program) Start(s service.Service) error {
-	if err := logger.InitLogger(config.DefaultLogPath(), logger.LogFormatText, true, slog.LevelInfo); err != nil {
-		slog.Error("init logger failed", "err", err)
-	}
-
 	if p.cfg == nil {
 		cfg, err := config.Load("")
 		if err != nil {
@@ -207,7 +206,9 @@ func (p *program) Start(s service.Service) error {
 	if _, ok := p.notifier.(*message.NotifyNotifier); ok {
 		p.watcher.SetSystemNotifier(func(disconnected bool, daemonURL string) {
 			subject, content := message.BuildSystemNotify(disconnected, daemonURL)
-			notify.Send(context.Background(), subject, content)
+			if err := notify.Send(context.Background(), subject, content); err != nil {
+				slog.Error("system notify failed", "err", err)
+			}
 		})
 	}
 
@@ -222,6 +223,7 @@ func (p *program) Start(s service.Service) error {
 	return nil
 }
 
+// Stop 实现 service.Interface.Stop，停止监听器并关闭日志
 func (p *program) Stop(s service.Service) error {
 	p.mu.Lock()
 	started := p.started

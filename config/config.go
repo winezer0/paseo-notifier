@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,7 +14,7 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.0.3"
+const Version = "0.0.4"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
@@ -61,16 +62,18 @@ type Config struct {
 	Language   string         `yaml:"language"`
 }
 
-// IntervalDuration 解析轮询间隔
+// IntervalDuration 解析间隔字符串为 Go 时间间隔
+// 解析失败时返回 5s
 func (m *MonitorConfig) IntervalDuration() time.Duration {
 	d, err := time.ParseDuration(m.Interval)
 	if err != nil {
+		slog.Warn("invalid monitor interval, falling back to 5s", "value", m.Interval, "err", err)
 		return 5 * time.Second
 	}
 	return d
 }
 
-// DefaultLogPath 返回默认日志路径（程序所在目录）
+// DefaultLogPath 返回程序所在目录下的默认日志路径
 func DefaultLogPath() string {
 	if exe, err := os.Executable(); err == nil {
 		return filepath.Join(filepath.Dir(exe), appLogPath)
@@ -78,7 +81,7 @@ func DefaultLogPath() string {
 	return ""
 }
 
-// DefaultConfig 返回默认配置
+// DefaultConfig 返回带有内置默认值的配置
 func DefaultConfig() *Config {
 	t := true
 	return &Config{
@@ -95,7 +98,7 @@ func DefaultConfig() *Config {
 	}
 }
 
-// AppDir 返回程序所在目录
+// AppDir 返回程序可执行文件所在目录
 func AppDir() string {
 	if exe, err := os.Executable(); err == nil {
 		return filepath.Dir(exe)
@@ -118,7 +121,7 @@ func Load(path string) (*Config, error) {
 	return DefaultConfig(), nil
 }
 
-// loadFile 从指定路径加载配置文件
+// loadFile 读取并解析指定路径的 YAML 配置文件
 func loadFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -150,7 +153,7 @@ func loadFile(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// AppConfigPath 返回程序所在目录下的配置文件路径
+// AppConfigPath 返回程序所在目录下的默认配置文件路径
 func AppConfigPath() string {
 	return filepath.Join(AppDir(), appConfig)
 }

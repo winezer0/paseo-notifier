@@ -18,6 +18,7 @@ type dingtalkConfig struct {
 	Secret      string `yaml:"secret"`
 }
 
+// newDingTalkProvider 根据 YAML 配置创建钉钉通知服务
 func newDingTalkProvider(rawCfg yaml.Node) (notify.Notifier, error) {
 	var cfg dingtalkConfig
 	if err := rawCfg.Decode(&cfg); err != nil {

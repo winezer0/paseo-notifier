@@ -160,7 +160,7 @@ var msgEn = messages{
 	KindMode:     "mode switch",
 }
 
-// getMessages 根据语言返回对应文本集合
+// getMessages 根据语言返回对应的文本集合
 func getMessages(lang Lang) messages {
 	switch lang {
 	case LangZh:
@@ -172,7 +172,7 @@ func getMessages(lang Lang) messages {
 	}
 }
 
-// detectLang 自动检测系统语言（跨平台入口）
+// detectLang 自动检测系统语言，检查环境变量和平台特定 API
 func detectLang() Lang {
 	// 1. 优先检查 LANG / LC_ALL / LC_MESSAGES 环境变量（Linux/macOS/通用）
 	for _, env := range []string{"LANG", "LC_ALL", "LC_MESSAGES"} {

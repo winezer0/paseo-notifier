@@ -25,6 +25,7 @@ type larkAppConfig struct {
 	Receivers []larkReceiverItem `yaml:"receivers"`
 }
 
+// newLarkAppProvider 根据 YAML 配置创建飞书自应用通知服务
 func newLarkAppProvider(rawCfg yaml.Node) (notify.Notifier, error) {
 	var cfg larkAppConfig
 	if err := rawCfg.Decode(&cfg); err != nil {
@@ -53,6 +54,7 @@ func newLarkAppProvider(rawCfg yaml.Node) (notify.Notifier, error) {
 	return svc, nil
 }
 
+// buildLarkReceiver 将类型和值转换为 Lark 接收者 ID
 func buildLarkReceiver(typ, value string) (*lark.ReceiverID, error) {
 	switch typ {
 	case "open_id":
