@@ -69,7 +69,7 @@ paseo-notifier start           # 启动服务
 
 ### 卡死检测
 
-当正在运行的 Agent 的 `UpdatedAt` 字段超过 `stuck_timeout`（默认 3 分钟）没有变化时，工具会调用 `get_agent_activity` 进行二次确认。如果最后一条活动记录的时间也超过了 `stuck_timeout` 阈值，则判定 Agent 卡死并发送通知。通知内容包含空闲时长和最后一条活动摘要，方便排查。
+当正在运行的 Agent 的 `UpdatedAt` 字段超过 `stuck_detect_timeout`（默认 120 秒）没有变化时，工具会调用 `get_agent_activity` 进行二次确认。如果最后一条活动记录的时间也超过了 `stuck_timeout` 阈值，则判定 Agent 卡死并发送通知。通知内容包含空闲时长和最后一条活动摘要，方便排查。
 
 > 如果 `UpdatedAt` 在监控期间恢复正常更新，卡死状态会自动重置。
 
@@ -109,8 +109,11 @@ paseo-notifier --config /path/to/custom.yaml --init
 monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
   interval: "5s"
-  # Agent 卡死检测超时（默认 3m），UpdatedAt 超过此时间无变化则判定卡死
-  stuck_timeout: "3m"
+  # 卡死检测超时（Go time.Duration 格式），0s/false/空 = 禁用，默认 120s
+  stuck_detect_timeout: 120s
+  # 检测到卡死后延迟重启，0s/false/空 = 禁用，默认 0s
+  stuck_restart_delay: 0s
+  stuck_restart_retry: 5
 
 log_format: "text"
 

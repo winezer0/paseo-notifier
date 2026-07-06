@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 
@@ -16,6 +15,7 @@ type cliOptions struct {
 	Config     string `short:"c" long:"config" description:"config file path" value-name:"FILE"`
 	Init       bool   `short:"i" long:"init" description:"print default config and exit"`
 	Version    bool   `short:"v" long:"version" description:"print version and exit"`
+	Cleanup    string `short:"C" long:"cleanup" optional:"true" optional-value:"12h" description:"cleanup archived agents before given duration (e.g. 12h, 0h for all); default: 12h" value-name:"DURATION"`
 	LogFile    string `long:"lf" description:"Log file path"`
 	LogLevel   string `long:"ll" description:"Log level: allowed debug/info/warn/error"`
 	LogConsole string `long:"lc" description:"Log format for console, supported T(time),L(level),C(caller),F(func),M(Msg), Turn off when empty or (off)"`
@@ -32,8 +32,8 @@ func parseCLI() (opts *cliOptions, action string) {
 	args, err := parser.Parse()
 	if err != nil {
 		var flagsErr *flags.Error
-		if errors.As(err, &flagsErr) && errors.Is(flagsErr.Type, flag.ErrHelp) {
-			printExtraHelp(parser)
+		if errors.As(err, &flagsErr) && flagsErr.Type == flags.ErrHelp {
+			printServiceHelp()
 			os.Exit(0)
 		}
 		fmt.Fprintf(os.Stderr, "parse flags error: %v\n", err)
@@ -47,10 +47,9 @@ func parseCLI() (opts *cliOptions, action string) {
 	return opts, action
 }
 
-// printExtraHelp 打印扩展帮助信息，包括服务管理命令和配置文件搜索顺序
-func printExtraHelp(parser *flags.Parser) {
-	parser.WriteHelp(os.Stdout)
-	fmt.Println()
+// printServiceHelp 打印扩展帮助信息，包括服务管理命令和配置文件搜索顺序
+// go-flags 已在 ErrHelp 时自动输出帮助文本，此处仅追加额外信息
+func printServiceHelp() {
 	fmt.Println("Service management commands (first argument):")
 	for name, desc := range serviceActions {
 		fmt.Printf("  %-12s %s\n", name, desc)

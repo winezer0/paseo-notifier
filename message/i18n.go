@@ -56,9 +56,11 @@ type messages struct {
 	FieldStatus     string
 
 	// 卡死事件
-	SubjectStuck      string
-	FieldStuckSince   string
+	SubjectStuck       string
+	FieldStuckSince    string
 	FieldStuckDuration string
+	FieldStuckReason   string
+	ContinuePrompt     string // 继续任务的提示文本
 
 	// 启动通知
 	StartupContent string
@@ -85,6 +87,8 @@ var msgZh = messages{
 
 	FieldStuckSince:   "卡死时间",
 	FieldStuckDuration: "卡死时长",
+	ContinuePrompt:     "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
+	FieldStuckReason:   "卡死原因",
 
 	SectionAgent:   "--- Agent 信息 ---",
 	SectionTime:    "--- 时间信息 ---",
@@ -136,6 +140,8 @@ var msgEn = messages{
 
 	FieldStuckSince:   "Stuck since",
 	FieldStuckDuration: "Stuck duration",
+	ContinuePrompt:     "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
+	FieldStuckReason:   "Stuck reason",
 
 	SectionAgent:   "--- Agent Info ---",
 	SectionTime:    "--- Time Info ---",

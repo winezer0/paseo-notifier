@@ -33,3 +33,5 @@ go.work.sum
 *.log
 paseo-notifier.yaml
 /.omo
+/agentwatcher/.omo
+/.rtk

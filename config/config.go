@@ -13,13 +13,15 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.0.4"
+const Version = "0.0.5"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
-	DaemonURL    string `yaml:"daemon_url"`
-	Interval     string `yaml:"interval"`
-	StuckTimeout string `yaml:"stuck_timeout"`
+	DaemonURL            string `yaml:"daemon_url"`
+	Interval             string `yaml:"interval"`
+	StuckDetectTimeout   string `yaml:"stuck_detect_timeout"`  // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 120s
+	StuckRestartDelay    string `yaml:"stuck_restart_delay"`   // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 0s
+	StuckRestartRetry    int    `yaml:"stuck_restart_retry"`   // 自动重启最大重试次数，默认 5
 }
 
 // ProviderItem 单个通知供应商配置项
@@ -61,16 +63,33 @@ func (m *MonitorConfig) IntervalDuration() time.Duration {
 	return d
 }
 
-// StuckTimeoutDuration 解析卡死超时字符串为 Go 时间间隔
-// 解析失败时返回 5m
-func (m *MonitorConfig) StuckTimeoutDuration() time.Duration {
-	if m.StuckTimeout == "" {
-		return 5 * time.Minute
+// StuckDetectDuration 解析卡死检测超时，0 表示禁用
+func (m *MonitorConfig) StuckDetectDuration() time.Duration {
+	d := parseDuration(m.StuckDetectTimeout, "stuck_detect_timeout")
+	if d > 0 {
+		return d
 	}
-	d, err := time.ParseDuration(m.StuckTimeout)
+	return 120 * time.Second
+}
+
+// StuckRestartDuration 解析卡死重启延迟，0 表示禁用
+func (m *MonitorConfig) StuckRestartDuration() time.Duration {
+	return parseDuration(m.StuckRestartDelay, "stuck_restart_delay")
+}
+
+// parseDuration 解析时间字符串，"false"/空/0 等均返回 0（禁用）
+func parseDuration(raw, field string) time.Duration {
+	if raw == "" || raw == "false" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
 	if err != nil {
-		logging.Warnf("invalid stuck_timeout, falling back to 5m value=%s err=%v", m.StuckTimeout, err)
-		return 5 * time.Minute
+		logging.Warnf("invalid %s, falling back to 0 value=%s err=%v", field, raw, err)
+		return 0
+	}
+	if d < 0 {
+		logging.Warnf("negative %s, falling back to 0 value=%s", field, raw)
+		return 0
 	}
 	return d
 }
@@ -87,9 +106,11 @@ func DefaultLogPath() string {
 func DefaultConfig() *Config {
 	return &Config{
 		Monitor: MonitorConfig{
-			DaemonURL:    "http://127.0.0.1:6767/mcp/agents",
-			Interval:     "5s",
-			StuckTimeout: "3m",
+			DaemonURL:          "http://127.0.0.1:6767/mcp/agents",
+			Interval:           "5s",
+			StuckDetectTimeout: "120s",
+			StuckRestartDelay:  "0s",
+			StuckRestartRetry:  5,
 		},
 		Notifier: NotifierConfig{
 			Providers: nil,

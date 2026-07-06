@@ -135,7 +135,12 @@ func buildStuckContent(event agentwatcher.AgentEvent, msg messages) string {
 		}
 	}
 
-	// 卡死通知附加空闲时长和最后活动摘要
+	// 卡死通知附加卡死原因、空闲时长和最后活动摘要
+	reason := stuckReason(event.ActivityEntries)
+	if reason != "" {
+		b.WriteString(fmt.Sprintf("\n%s: %s\n", msg.FieldStuckReason, reason))
+	}
+
 	lastEntry := lastActivityEntry(event.ActivityEntries)
 	if lastEntry != nil {
 		idleDuration := calcDuration(lastEntry.Timestamp, nil)
@@ -231,6 +236,24 @@ func modelLabel(agent agentwatcher.AgentStatus) string {
 	return agent.Provider
 }
 
+// stuckReason 从活动记录中提取卡死原因
+// 优先查找 error 类型的条目，否则取最后一条有意义的摘要
+func stuckReason(entries []agentwatcher.ActivityEntry) string {
+	var lastSummary string
+	for i := range entries {
+		if entries[i].Summary == "" {
+			continue
+		}
+		lastSummary = entries[i].Summary
+		// error 类型或包含 error/retry/timeout 关键词的优先作为原因
+		switch entries[i].Type {
+		case "error", "fatal":
+			return entries[i].Summary
+		}
+	}
+	return lastSummary
+}
+
 // lastActivityEntry 返回活动记录中时间戳最新的那条，没有记录时返回 nil
 func lastActivityEntry(entries []agentwatcher.ActivityEntry) *agentwatcher.ActivityEntry {
 	var latest *agentwatcher.ActivityEntry
@@ -249,6 +272,11 @@ func lastActivityEntry(entries []agentwatcher.ActivityEntry) *agentwatcher.Activ
 		}
 	}
 	return latest
+}
+
+// BuildContinuePrompt 返回继续任务的提示文本（根据当前语言设置）
+func BuildContinuePrompt() string {
+	return getMessages(currentLang).ContinuePrompt
 }
 
 // kindToLabel 将权限请求的 kind 字符串转换为本地化标签

@@ -44,11 +44,10 @@ func (p *program) Start(s service.Service) error {
 	p.notifier = message.BuildNotifier(p.cfg)
 
 	p.watcher = agentwatcher.NewWatcher(
-		p.cfg.Monitor.DaemonURL,
-		p.cfg.Monitor.IntervalDuration(),
+		p.cfg.Monitor,
 		p.notifier,
+		message.BuildContinuePrompt(),
 	)
-	p.watcher.SetStuckTimeout(p.cfg.Monitor.StuckTimeoutDuration())
 
 	if _, ok := p.notifier.(*message.NotifyNotifier); ok {
 		p.watcher.SetSystemNotifier(func(disconnected bool, daemonURL string) {

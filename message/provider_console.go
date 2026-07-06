@@ -5,10 +5,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/winezer0/paseo-notifier/agentwatcher"
+	"github.com/nikoksr/notify"
+	"gopkg.in/yaml.v3"
 )
 
-// emojiMap Slack 风格 emoji 代码到 Unicode 字符的映射
+// consoleConfig console 供应商的配置
+type consoleConfig struct {
+	Enable bool `yaml:"enable"`
+}
+
+// emojiReplacer Slack 风格 emoji 代码到 Unicode 字符的映射
 var emojiReplacer = strings.NewReplacer(
 	":white_check_mark:", "✅",
 	":x:", "❌",
@@ -21,23 +27,36 @@ func replaceEmoji(s string) string {
 	return emojiReplacer.Replace(s)
 }
 
-// consoleNotifier 在控制台输出带 emoji 的通知
-type consoleNotifier struct{}
+// consoleService 实现 notify.Notifier，在控制台输出带 emoji 的通知
+type consoleService struct{}
 
-// Notify implements agentwatcher.Notifier
-func (n *consoleNotifier) Notify(ctx context.Context, event agentwatcher.AgentEvent) error {
-	subject, content := Build(event)
-
+// Send 实现 notify.Notifier 接口，先替换 emoji 再输出到控制台
+func (s *consoleService) Send(ctx context.Context, subject, message string) error {
 	subject = replaceEmoji(subject)
-	content = replaceEmoji(content)
+	message = replaceEmoji(message)
 
 	fmt.Println()
 	fmt.Println("=== Notification ===")
 	fmt.Println("Subject:", subject)
-	for _, line := range strings.Split(content, "\n") {
+	for _, line := range strings.Split(message, "\n") {
 		fmt.Printf("  %s\n", line)
 	}
 	fmt.Println("====================")
 	fmt.Println()
 	return nil
+}
+
+func init() {
+	RegisterProvider("console", newConsoleProvider)
+}
+
+func newConsoleProvider(rawCfg yaml.Node) (notify.Notifier, error) {
+	var cfg consoleConfig
+	if err := rawCfg.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("console: parse config failed: %w", err)
+	}
+	if !cfg.Enable {
+		return nil, fmt.Errorf("console: disabled")
+	}
+	return &consoleService{}, nil
 }

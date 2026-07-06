@@ -11,10 +11,12 @@ monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
   # 轮询间隔（Go time.Duration 格式）
   interval: "5s"
-  # Agent 卡死检测超时（默认 3m）
-  # 当 Agent 的 UpdatedAt 超过此时间无变化时，会调用 get_agent_activity 二次确认
-  # 如果最后活动时间也超过了此阈值，则判定为卡死并发送通知
-  stuck_timeout: "3m"
+  # 卡死检测超时（Go time.Duration 格式），0s/0m/0h/false/空 = 禁用，默认 120s
+  stuck_detect_timeout: 120s
+  # 检测到卡死后延迟重启（Go time.Duration 格式），0s/0m/0h/false/空 = 禁用，默认 0s
+  stuck_restart_delay: 0s
+  # 自动重启最大重试次数，默认 5
+  stuck_restart_retry: 5
 
 # 通用配置（日志、语言等）
 common:
@@ -26,7 +28,6 @@ common:
   # 是否同时输出日志到控制台（默认 true）
   # 前台运行时建议开启，系统服务模式可设为 false 避免无控制台输出
   log_console: "TLM"
-
   # 通知消息语言（默认 auto）
   # auto: 自动检测系统语言（中文系统→zh，其他→en）
   # zh:   中文
@@ -39,6 +40,13 @@ common:
 # 不配置任何供应商时，事件仅输出到日志
 notifier:
   providers:
+    # ---- 类型: console ----
+    # 控制台输出（带 emoji 格式），enable: true 时启用
+    # 未配置 console 且无其他供应商时，事件仅输出到日志
+     - type: "console"
+       config:
+         enable: true
+
     # ---- 类型: dingtalk ----
     # 钉钉自定义机器人（Webhook + 加签）
     # - type: "dingtalk"

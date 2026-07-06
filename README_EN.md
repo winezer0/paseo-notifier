@@ -69,7 +69,7 @@ When **finished / error** events fire, `get_agent_activity` is automatically cal
 
 ### Stuck Detection
 
-When a running agent's `UpdatedAt` field hasn't changed for longer than `stuck_timeout` (default 3 minutes), the tool calls `get_agent_activity` for a second opinion. If the latest activity entry's timestamp also exceeds `stuck_timeout`, the agent is confirmed stuck and a notification is sent. The notification includes idle duration and the last activity summary for troubleshooting.
+When a running agent's `UpdatedAt` field hasn't changed for longer than `stuck_detect_timeout` (default 120 seconds), the tool calls `get_agent_activity` for a second opinion. If the latest activity entry's timestamp also exceeds `stuck_timeout`, the agent is confirmed stuck and a notification is sent. The notification includes idle duration and the last activity summary for troubleshooting.
 
 > If `UpdatedAt` resumes normal updates during monitoring, the stuck state is automatically reset.
 
@@ -109,8 +109,11 @@ paseo-notifier --config /path/to/custom.yaml --init
 monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
   interval: "5s"
-  # Agent stuck detection timeout (default 3m); fires if UpdatedAt hasn't changed
-  stuck_timeout: "3m"
+  # Stuck detection timeout (Go time.Duration), 0s/false/empty = disabled, default 120s
+  stuck_detect_timeout: 120s
+  # Restart delay after stuck (Go time.Duration), 0s/false/empty = disabled, default 0s
+  stuck_restart_delay: 0s
+  stuck_restart_retry: 5
 
 log_format: "text"
 

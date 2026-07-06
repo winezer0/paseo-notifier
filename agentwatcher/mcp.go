@@ -1,0 +1,344 @@
+package agentwatcher
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/winezer0/paseo-notifier/logging"
+)
+
+// fetchAgents 调用 list_agents MCP 工具获取 Agent 列表
+func (w *Watcher) fetchAgents() ([]AgentStatus, error) {
+	resp, err := w.callMCP("list_agents", map[string]interface{}{})
+	if err != nil {
+		return nil, fmt.Errorf("mcp call failed: %w", err)
+	}
+
+	var result listAgentsResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, fmt.Errorf("parse agents response failed: %w", err)
+	}
+
+	return result.Result.StructuredContent.Agents, nil
+}
+
+// fetchPendingPermissions 调用 list_pending_permissions MCP 工具获取待处理权限请求
+func (w *Watcher) fetchPendingPermissions() ([]PermissionRequest, error) {
+	resp, err := w.callMCP("list_pending_permissions", map[string]interface{}{})
+	if err != nil {
+		return nil, fmt.Errorf("mcp call failed: %w", err)
+	}
+
+	var result listPermissionsResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, fmt.Errorf("parse permissions response failed: %w", err)
+	}
+
+	return result.Result.StructuredContent.Permissions, nil
+}
+
+// getAgentActivity 调用 get_agent_activity MCP 工具，返回 Agent 的活动记录列表
+// 调用失败时返回 nil
+func (w *Watcher) getAgentActivity(agentID string) []ActivityEntry {
+	resp, err := w.callMCP("get_agent_activity", map[string]interface{}{
+		"agentId": agentID,
+	})
+	if err != nil {
+		logging.Warnf("get_agent_activity failed agentId=%s err=%v", agentID, err)
+		return nil
+	}
+
+	var result agentActivityResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		logging.Warnf("parse agent activity failed agentId=%s err=%v", agentID, err)
+		return nil
+	}
+
+	if result.Result.StructuredContent == nil {
+		return nil
+	}
+
+	return result.Result.StructuredContent.Entries
+}
+
+// getAgentStatus 调用 get_agent_status MCP 工具，返回 Agent 的最新状态文本摘要
+func (w *Watcher) getAgentStatus(agentID string) string {
+	resp, err := w.callMCPWithTimeout("get_agent_status", map[string]interface{}{
+		"agentId": agentID,
+	}, 10*time.Second)
+	if err != nil {
+		logging.Warnf("get_agent_status failed agentId=%s err=%v", agentID, err)
+		return ""
+	}
+
+	var result struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		logging.Warnf("parse agent status failed agentId=%s err=%v", agentID, err)
+		return ""
+	}
+	if len(result.Result.Content) > 0 {
+		return result.Result.Content[0].Text
+	}
+	return ""
+}
+
+// lastActivityTime 返回活动记录中最后一条的时间戳，没有记录时返回 nil
+func (w *Watcher) lastActivityTime(entries []ActivityEntry) *time.Time {
+	var latest *time.Time
+	for _, entry := range entries {
+		if entry.Timestamp == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, entry.Timestamp)
+		if err != nil {
+			continue
+		}
+		if latest == nil || t.After(*latest) {
+			latest = &t
+		}
+	}
+	return latest
+}
+
+// createAgent 调用 create_agent MCP 工具创建一个 Agent，返回 Agent ID
+// 创建 Agent 可能耗时较长，使用独立的 60s 超时
+func (w *Watcher) createAgent(cwd, title, provider, initialPrompt string) (string, error) {
+	resp, err := w.callMCPWithTimeout("create_agent", map[string]interface{}{
+		"cwd":           cwd,
+		"title":         title,
+		"provider":      provider,
+		"initialPrompt": initialPrompt,
+	}, 60*time.Second)
+	if err != nil {
+		return "", fmt.Errorf("create_agent failed: %w", err)
+	}
+
+	var result struct {
+		Result struct {
+			StructuredContent *struct {
+				AgentID string `json:"agentId"`
+			} `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return "", fmt.Errorf("parse create_agent response failed: %w", err)
+	}
+	if result.Result.StructuredContent == nil {
+		return "", fmt.Errorf("create_agent response missing structuredContent: %s", string(resp))
+	}
+
+	logging.Infof("agent created agentId=%s title=%s", result.Result.StructuredContent.AgentID, title)
+	return result.Result.StructuredContent.AgentID, nil
+}
+
+// sendAgentPrompt 调用 send_agent_prompt MCP 工具向指定 Agent 发送提示
+func (w *Watcher) sendAgentPrompt(agentID, prompt string) error {
+	_, err := w.callMCPWithTimeout("send_agent_prompt", map[string]interface{}{
+		"agentId": agentID,
+		"prompt":  prompt,
+	}, 60*time.Second)
+	if err != nil {
+		return fmt.Errorf("send_agent_prompt failed: %w", err)
+	}
+	logging.Infof("agent prompt sent agentId=%s", agentID)
+	return nil
+}
+
+// CleanupArchivedAgents 获取已归档的 Agent 并根据保留时间清理
+// retention <= 0 时清理所有已归档 Agent；retention > 0 时仅清理归档时间早于 now-retention 的 Agent
+// 返回成功清理的 Agent 数量
+func (w *Watcher) CleanupArchivedAgents(retention time.Duration) (int, error) {
+	agents, err := w.fetchAgents()
+	if err != nil {
+		return 0, fmt.Errorf("fetch agents failed: %w", err)
+	}
+
+	cutoff := time.Now().Add(-retention)
+
+	var count int
+	for _, agent := range agents {
+		if agent.ArchivedAt == nil {
+			continue
+		}
+		// 有保留时间要求时，检查归档时间是否足够老
+		if retention > 0 {
+			archivedAt, err := time.Parse(time.RFC3339, *agent.ArchivedAt)
+			if err != nil {
+				logging.Warnf("parse archivedAt failed agentId=%s archivedAt=%s err=%v", agent.ID, *agent.ArchivedAt, err)
+				continue
+			}
+			if archivedAt.After(cutoff) {
+				continue
+			}
+		}
+		if err := w.killAgent(agent.ID); err != nil {
+			logging.Warnf("kill archived agent failed agentId=%s err=%v", agent.ID, err)
+			continue
+		}
+		count++
+	}
+
+	logging.Infof("cleanup completed: %d archived agents killed", count)
+	return count, nil
+}
+
+// killAgent 调用 kill_agent MCP 工具永久终止指定 Agent
+func (w *Watcher) killAgent(agentID string) error {
+	_, err := w.callMCP("kill_agent", map[string]interface{}{
+		"agentId": agentID,
+	})
+	if err != nil {
+		return fmt.Errorf("kill_agent failed: %w", err)
+	}
+	logging.Infof("agent killed agentId=%s", agentID)
+	return nil
+}
+
+// archiveAgent 调用 archive_agent MCP 工具软删除指定 Agent
+func (w *Watcher) archiveAgent(agentID string) error {
+	_, err := w.callMCPWithTimeout("archive_agent", map[string]interface{}{
+		"agentId": agentID,
+	}, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("archive_agent failed: %w", err)
+	}
+	logging.Infof("agent archived agentId=%s", agentID)
+	return nil
+}
+
+// cancelAgent 调用 cancel_agent MCP 工具取消指定 Agent 的当前任务
+func (w *Watcher) cancelAgent(agentID string) error {
+	_, err := w.callMCPWithTimeout("cancel_agent", map[string]interface{}{
+		"agentId": agentID,
+	}, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("cancel_agent failed: %w", err)
+	}
+	logging.Infof("agent cancelled agentId=%s", agentID)
+	return nil
+}
+
+// continueAgent 调用 send_agent_prompt MCP 工具发送继续任务提示
+func (w *Watcher) continueAgent(agentID string) error {
+	if w.continuePrompt == "" {
+		return fmt.Errorf("continue prompt not set")
+	}
+	_, err := w.callMCPWithTimeout("send_agent_prompt", map[string]interface{}{
+		"agentId": agentID,
+		"prompt":  w.continuePrompt,
+	}, 120*time.Second)
+	if err != nil {
+		return fmt.Errorf("send_agent_prompt failed: %w", err)
+	}
+	logging.Infof("continue prompt sent agentId=%s", agentID)
+	return nil
+}
+
+// restartAgent 尝试恢复卡死的 Agent，保留上下文
+// 只发继续提示，不取消执行，保护用户对话上下文不被损坏
+func (w *Watcher) restartAgent(agentID string) error {
+	if err := w.continueAgent(agentID); err != nil {
+		return fmt.Errorf("continue prompt failed: %w", err)
+	}
+	return nil
+}
+
+// callMCP 发送 MCP JSON-RPC 请求并返回响应体中的 data: 行内容
+// 使用 watcher 默认的 HTTP 客户端超时
+func (w *Watcher) callMCP(method string, params interface{}) ([]byte, error) {
+	return w.callMCPWithTimeout(method, params, 0)
+}
+
+// callMCPWithTimeout 发送 MCP JSON-RPC 请求，支持自定义超时
+// timeout=0 时使用 watcher 默认的 httpClient 超时
+func (w *Watcher) callMCPWithTimeout(method string, params interface{}, timeout time.Duration) ([]byte, error) {
+	req := mcpRequest{
+		JSONRPC: "2.0",
+		ID:      w.nextID(),
+		Method:  "tools/call",
+		Params: map[string]interface{}{
+			"name":      method,
+			"arguments": params,
+		},
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request failed: %w", err)
+	}
+
+	// 如果指定了超时，创建独立的 context 避免被 watcher 生命周期影响；否则使用 watcher 的 context
+	reqCtx := w.ctx
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		reqCtx, cancel = context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+	}
+
+	httpReq, err := http.NewRequestWithContext(reqCtx, "POST", w.daemonURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// 如果使用自定义超时，创建独立的 httpClient 绕过默认的 10s 超时
+	httpClient := w.httpClient
+	if timeout > 0 {
+		httpClient = &http.Client{
+			Timeout:   timeout + 5*time.Second,
+			Transport: w.httpClient.Transport,
+		}
+	}
+
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("http status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return parseSSEJSON(respBody)
+}
+
+// parseSSEJSON 从 SSE 响应中提取 data: 行的 JSON 内容
+func parseSSEJSON(data []byte) ([]byte, error) {
+	lines := bytes.Split(data, []byte("\n"))
+	for _, line := range lines {
+		trimmed := bytes.TrimSpace(line)
+		if bytes.HasPrefix(trimmed, []byte("data: ")) {
+			return bytes.TrimPrefix(trimmed, []byte("data: ")), nil
+		}
+	}
+	return nil, fmt.Errorf("no data line found in SSE response: %s", string(data))
+}
+
+// ptrTimeEqual 比较两个 *string 时间戳是否相等
+func ptrTimeEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}

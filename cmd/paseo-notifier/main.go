@@ -14,10 +14,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/kardianos/service"
+	"github.com/winezer0/paseo-notifier/agentwatcher"
 	"github.com/winezer0/paseo-notifier/config"
 	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/paseo-notifier/message"
 )
 
 func main() {
@@ -36,25 +39,42 @@ func main() {
 		return
 	}
 
+	if opts.Cleanup != "" {
+		cfg := initConfigAndLogger(opts)
+		defer logging.Sync()
+
+		durStr := opts.Cleanup
+		retention, err := time.ParseDuration(durStr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: invalid cleanup duration %q: %v\n", durStr, err)
+			os.Exit(1)
+		}
+
+		w := agentwatcher.NewWatcher(cfg.Monitor, &message.NoopNotifier{}, "")
+		defer w.Stop()
+
+		count, err := w.CleanupArchivedAgents(retention)
+		if err != nil {
+			logging.Errorf("cleanup failed: %v", err)
+			os.Exit(1)
+		}
+		if retention <= 0 {
+			logging.Infof("cleanup completed: %d archived agents killed", count)
+		} else {
+			logging.Infof("cleanup completed: %d archived agents (older than %s) killed", count, retention)
+		}
+		return
+	}
+
 	svcConfig := &service.Config{
 		Name:        config.AppName,
 		DisplayName: config.AppName,
 		Description: "Monitor Paseo Agent status and send notifications via configured channels",
 	}
 
-	// 前台运行 / 服务运行：加载配置文件，合并日志配置，初始化日志器
+	// 前台运行 / 服务运行
 	if action == "" || action == "run" {
-		cfg, err := config.Load(opts.Config)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: load config failed: %v\n", err)
-			os.Exit(1)
-		}
-
-		logCfg := mergeLogConfig(opts, cfg)
-		if err := logging.InitDefaultLogger(logCfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
-			os.Exit(1)
-		}
+		cfg := initConfigAndLogger(opts)
 		defer logging.Sync()
 
 		prg := &program{cfg: cfg}
@@ -69,7 +89,6 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-
 		// 服务管理命令（install / uninstall / start / stop / restart）
 		if _, valid := serviceActions[action]; !valid {
 			fmt.Fprintf(os.Stderr, "unknown command: %q\n", action)
@@ -77,7 +96,6 @@ func main() {
 			os.Exit(1)
 		}
 
-		// 服务控制命令仅输出少量日志，使用控制台基本日志
 		consoleCfg := logging.NewLogConfig("info", "", "T L C M")
 		if err := logging.InitDefaultLogger(consoleCfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
@@ -98,4 +116,20 @@ func main() {
 		}
 		logging.Infof("service %s completed successfully", action)
 	}
+}
+
+// initConfigAndLogger 加载配置并初始化日志器，失败时直接 exit
+func initConfigAndLogger(opts *cliOptions) *config.Config {
+	cfg, err := config.Load(opts.Config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: load config failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	logCfg := mergeLogConfig(opts, cfg)
+	if err := logging.InitDefaultLogger(logCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	return cfg
 }
