@@ -32,3 +32,4 @@ go.work.sum
 # .vscode/
 *.log
 paseo-notifier.yaml
+/.omo
