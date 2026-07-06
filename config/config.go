@@ -51,12 +51,13 @@ type NotifierConfig struct {
 	Providers []ProviderItem `yaml:"providers"`
 }
 
-// CommonConfig 通用配置（日志、语言等）
+// CommonConfig 通用配置（日志、语言、dry-run 等）
 type CommonConfig struct {
 	LogFormat  string `yaml:"log_format"`
 	LogPath    string `yaml:"log_path"`
 	LogConsole *bool  `yaml:"log_console"`
 	Language   string `yaml:"language"`
+	DryRun     bool   `yaml:"dryrun"`
 }
 
 // Config 总配置
