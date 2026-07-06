@@ -177,8 +177,8 @@ func (p *program) Start(s service.Service) error {
 			"interval", p.cfg.Monitor.Interval)
 	}
 
-	logConsole := p.cfg.LogConsole != nil && *p.cfg.LogConsole
-	if err := logger.InitLogger(p.cfg.LogPath, p.cfg.LogFormat, logConsole, slog.LevelInfo); err != nil {
+	logConsole := p.cfg.Common.LogConsole != nil && *p.cfg.Common.LogConsole
+	if err := logger.InitLogger(p.cfg.Common.LogPath, p.cfg.Common.LogFormat, logConsole, slog.LevelInfo); err != nil {
 		slog.Error("init logger with config failed", "err", err)
 	}
 
@@ -190,10 +190,10 @@ func (p *program) Start(s service.Service) error {
 		"daemon", p.cfg.Monitor.DaemonURL,
 		"interval", p.cfg.Monitor.Interval,
 		"notifier_providers", providerTypes,
-		"language", p.cfg.Language,
+		"language", p.cfg.Common.Language,
 		"version", config.Version)
 
-	message.SetLang(message.ResolveLang(p.cfg.Language))
+	message.SetLang(message.ResolveLang(p.cfg.Common.Language))
 
 	p.notifier = message.BuildNotifier(p.cfg)
 
