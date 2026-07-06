@@ -12,22 +12,24 @@ monitor:
   # 轮询间隔（Go time.Duration 格式）
   interval: "5s"
 
-# 日志格式，可选 text 或 json
-log_format: "text"
+# 通用配置（日志、语言等）
+common:
+  # 日志格式，可选 text 或 json
+  log_format: "text"
 
-# 日志文件路径（默认：程序所在目录下的 paseo-notifier.log）
-# 留空则使用默认路径，日志文件超 10MB 自动轮转清理
-log_path: ""
+  # 日志文件路径（默认：程序所在目录下的 paseo-notifier.log）
+  # 留空则使用默认路径，日志文件超 10MB 自动轮转清理
+  log_path: ""
 
-# 是否同时输出日志到控制台（默认 true）
-# 前台运行时建议开启，系统服务模式可设为 false 避免无控制台输出
-log_console: true
+  # 是否同时输出日志到控制台（默认 true）
+  # 前台运行时建议开启，系统服务模式可设为 false 避免无控制台输出
+  log_console: true
 
-# 通知消息语言（默认 auto）
-# auto: 自动检测系统语言（中文系统→zh，其他→en）
-# zh:   中文
-# en:   英文
-language: "auto"
+  # 通知消息语言（默认 auto）
+  # auto: 自动检测系统语言（中文系统→zh，其他→en）
+  # zh:   中文
+  # en:   英文
+  language: "auto"
 
 # 通知供应商配置
 # providers 是一个数组，可以同时配置多个供应商

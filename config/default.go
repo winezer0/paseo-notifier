@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/winezer0/paseo-notifier/embeds"
+	"gopkg.in/yaml.v3"
 )
 
 // WriteDefaultConfig 将内嵌的默认配置 YAML 写入指定路径
@@ -29,4 +30,32 @@ func WriteDefaultConfig(cfgPath string) error {
 
 	fmt.Printf("config file written to: %s\n", cfgPath)
 	return nil
+}
+
+// Load searches for config in program directory.
+// Returns default config if none found.
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		// 如果是文件不存在，可以返回 nil, nil 让上层处理，或者返回具体错误
+		if os.IsNotExist(err) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("read config file %s: %w", path, err)
+	}
+
+	// 1. 获取默认配置模板
+	cfg := DefaultConfig()
+
+	// 2. 解析 YAML 覆盖默认值
+	// 注意：标准 yaml.Unmarshal 只会覆盖 YAML 中存在的字段，不会清空 cfg 中已有的默认值
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse config file %s: %w", path, err)
+	}
+
+	// 3. 删除这里所有的 if cfg.XXX == "" 判断
+	// 因为 cfg 已经从 DefaultConfig() 继承了默认值，
+	// 且 Unmarshal 只会覆盖非空字段，所以这里不需要再次检查。
+
+	return cfg, nil
 }

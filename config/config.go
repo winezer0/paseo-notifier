@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -52,14 +51,19 @@ type NotifierConfig struct {
 	Providers []ProviderItem `yaml:"providers"`
 }
 
+// CommonConfig 通用配置（日志、语言等）
+type CommonConfig struct {
+	LogFormat  string `yaml:"log_format"`
+	LogPath    string `yaml:"log_path"`
+	LogConsole *bool  `yaml:"log_console"`
+	Language   string `yaml:"language"`
+}
+
 // Config 总配置
 type Config struct {
-	Monitor    MonitorConfig  `yaml:"monitor"`
-	Notifier   NotifierConfig `yaml:"notifier"`
-	LogFormat  string         `yaml:"log_format"`
-	LogPath    string         `yaml:"log_path"`
-	LogConsole *bool          `yaml:"log_console"`
-	Language   string         `yaml:"language"`
+	Monitor  MonitorConfig  `yaml:"monitor"`
+	Notifier NotifierConfig `yaml:"notifier"`
+	Common   CommonConfig   `yaml:"common"`
 }
 
 // IntervalDuration 解析间隔字符串为 Go 时间间隔
@@ -92,9 +96,11 @@ func DefaultConfig() *Config {
 		Notifier: NotifierConfig{
 			Providers: nil,
 		},
-		LogFormat:  "text",
-		LogPath:    "",
-		LogConsole: &t,
+		Common: CommonConfig{
+			LogFormat:  "text",
+			LogPath:    "",
+			LogConsole: &t,
+		},
 	}
 }
 
@@ -104,53 +110,6 @@ func AppDir() string {
 		return filepath.Dir(exe)
 	}
 	return "."
-}
-
-// Load searches for config in program directory.
-// Returns default config if none found.
-func Load(path string) (*Config, error) {
-	if path != "" {
-		return loadFile(path)
-	}
-
-	full := filepath.Join(AppDir(), appConfig)
-	if cfg, err := loadFile(full); err == nil {
-		return cfg, nil
-	}
-
-	return DefaultConfig(), nil
-}
-
-// loadFile 读取并解析指定路径的 YAML 配置文件
-func loadFile(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config file %s: %w", path, err)
-	}
-
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parse config file %s: %w", path, err)
-	}
-
-	if cfg.Monitor.DaemonURL == "" {
-		cfg.Monitor.DaemonURL = "http://127.0.0.1:6767/mcp/agents"
-	}
-	if cfg.Monitor.Interval == "" {
-		cfg.Monitor.Interval = "5s"
-	}
-	if cfg.LogFormat == "" {
-		cfg.LogFormat = "text"
-	}
-	if cfg.LogPath == "" {
-		cfg.LogPath = DefaultLogPath()
-	}
-	if cfg.LogConsole == nil {
-		t := true
-		cfg.LogConsole = &t
-	}
-
-	return cfg, nil
 }
 
 // AppConfigPath 返回程序所在目录下的默认配置文件路径
