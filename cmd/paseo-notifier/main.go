@@ -32,7 +32,6 @@ type cliOptions struct {
 	Config  string `short:"c" long:"config" description:"config file path" value-name:"FILE"`
 	Init    bool   `short:"i" long:"init" description:"print default config and exit"`
 	Version bool   `short:"v" long:"version" description:"print version and exit"`
-	DryRun  bool   `long:"dryrun" description:"dry-run mode: print notifications to console only"`
 }
 
 // serviceActions 服务管理命令列表
@@ -114,7 +113,6 @@ func main() {
 		}
 
 		prg := &program{cfg: cfg}
-		cfg.Common.DryRun = opts.DryRun
 		s, err := service.New(prg, svcConfig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -205,17 +203,7 @@ func (p *program) Start(s service.Service) error {
 		p.notifier,
 	)
 
-	if p.cfg.Common.DryRun {
-		p.watcher.SetSystemNotifier(func(disconnected bool, daemonURL string) {
-			subject, content := message.BuildSystemNotify(disconnected, daemonURL)
-			slog.Info("dry-run: printing system notification to console",
-				"subject", subject)
-			fmt.Println("===== [DRY RUN] =====")
-			fmt.Printf("Subject: %s\n", subject)
-			fmt.Printf("Content:\n%s\n", content)
-			fmt.Println("=====================")
-		})
-	} else if _, ok := p.notifier.(*message.NotifyNotifier); ok {
+	if _, ok := p.notifier.(*message.NotifyNotifier); ok {
 		p.watcher.SetSystemNotifier(func(disconnected bool, daemonURL string) {
 			subject, content := message.BuildSystemNotify(disconnected, daemonURL)
 			if err := notify.Send(context.Background(), subject, content); err != nil {
