@@ -15,23 +15,35 @@ import (
 type noopNotifier struct{}
 
 // Notify 实现了 agentwatcher.Notifier，仅记录日志不发送实际通知
-func (n *noopNotifier) Notify(event agentwatcher.AgentEvent) error {
+func (n *noopNotifier) Notify(ctx context.Context, event agentwatcher.AgentEvent) error {
 	logging.Debugf("event received but no notifier configured type=%s agent=%s", event.Type, event.Agent.ShortID)
 	return nil
 }
 
-// BuildNotifier 根据配置构建通知器，支持同时使用多个供应商
-// 未配置有效供应商时返回 noopNotifier
+// BuildNotifier 根据配置构建通知器，支持同时使用多个供应商。
+// 未配置任何供应商时默认使用 consoleNotifier，保证用户始终能看到输出。
+// ponytail: console provider 从真实 provider 列表剥离，避免 notify.UseServices 双重复制
 func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	providers := cfg.Notifier.Providers
 
-	if len(providers) == 0 {
-		logging.Warn("no notification providers configured, events will be logged only")
-		return &noopNotifier{}
+	// 检查是否有 console provider，并从真实 provider 列表中剥离
+	var realProviders []config.ProviderItem
+	for _, p := range providers {
+		if p.Type == "console" {
+			continue
+		}
+		realProviders = append(realProviders, p)
 	}
 
+	// 没有真实 provider → 默认使用控制台输出
+	if len(realProviders) == 0 {
+		logging.Info("console notification enabled")
+		return &consoleNotifier{}
+	}
+
+	// 构建真实的通知服务
 	var services []notify.Notifier
-	for _, p := range providers {
+	for _, p := range realProviders {
 		factory, ok := GetProvider(p.Type)
 		if !ok {
 			logging.Warnf("unknown provider type, skipping type=%s", p.Type)
@@ -49,8 +61,8 @@ func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	}
 
 	if len(services) == 0 {
-		logging.Warn("no valid notification provider configured, events will be logged only")
-		return &noopNotifier{}
+		logging.Info("console notification enabled (all configured providers invalid)")
+		return &consoleNotifier{}
 	}
 
 	notify.UseServices(services...)

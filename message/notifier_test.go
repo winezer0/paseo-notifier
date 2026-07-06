@@ -22,8 +22,8 @@ func TestBuildNotifierEmptyProviders(t *testing.T) {
 	cfg.Notifier.Providers = nil
 
 	n := BuildNotifier(cfg)
-	if _, ok := n.(*noopNotifier); !ok {
-		t.Fatal("expected noopNotifier for empty providers")
+	if _, ok := n.(*consoleNotifier); !ok {
+		t.Fatal("expected consoleNotifier for empty providers (default)")
 	}
 }
 
@@ -34,8 +34,8 @@ func TestBuildNotifierUnknownProvider(t *testing.T) {
 	}
 
 	n := BuildNotifier(cfg)
-	if _, ok := n.(*noopNotifier); !ok {
-		t.Fatal("expected noopNotifier when all providers are invalid")
+	if _, ok := n.(*consoleNotifier); !ok {
+		t.Fatal("expected consoleNotifier when all providers are invalid")
 	}
 }
 
@@ -80,4 +80,42 @@ func TestBuildNotifierSkipsInvalidProvider(t *testing.T) {
 func TestSendStartupNotificationWithNoopNotifier(t *testing.T) {
 	n := &noopNotifier{}
 	SendStartupNotification(n)
+}
+
+func TestBuildNotifierConsoleOnly(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Notifier.Providers = []config.ProviderItem{
+		{Type: "console"},
+	}
+
+	n := BuildNotifier(cfg)
+	if _, ok := n.(*consoleNotifier); !ok {
+		t.Fatal("expected consoleNotifier for console-only config")
+	}
+}
+
+func TestBuildNotifierConsoleWithOtherProvider(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Notifier.Providers = []config.ProviderItem{
+		{Type: "console"},
+		parseProviderItem(t, "type: dingtalk\nconfig:\n  access_token: mytoken\n  secret: mysecret\n"),
+	}
+
+	n := BuildNotifier(cfg)
+	if _, ok := n.(*NotifyNotifier); !ok {
+		t.Fatal("expected NotifyNotifier when console is combined with other providers")
+	}
+}
+
+func TestBuildNotifierConsoleWithInvalidOtherProvider(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Notifier.Providers = []config.ProviderItem{
+		{Type: "console"},
+		{Type: "unknown_xyz"},
+	}
+
+	n := BuildNotifier(cfg)
+	if _, ok := n.(*consoleNotifier); !ok {
+		t.Fatal("expected consoleNotifier when only console is valid")
+	}
 }

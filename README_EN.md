@@ -39,7 +39,9 @@ Daemon MCP API (127.0.0.1:6767)
   Agent Watcher (polls every 5s)
        │
        ├── list_agents                    → detect finished / error
-       └── list_pending_permissions       → detect new permission requests
+       │   └── get_agent_activity         → attach activity summary
+       ├── list_pending_permissions       → detect new permission requests
+       └── get_agent_activity             → confirm stuck status
        │
        ▼
   Notifier.Notify(event)
@@ -59,6 +61,17 @@ Daemon MCP API (127.0.0.1:6767)
 | ✅ Task finished | `attentionReason: null → "finished"` | `list_agents` |
 | ❌ Error occurred | `attentionReason: null → "error"` | `list_agents` |
 | ⚠️ Interaction needed | New item in `list_pending_permissions` | Permission request list |
+| 🔔 Agent stuck | `UpdatedAt` unchanged beyond `stuck_timeout` | `get_agent_activity` confirms |
+
+### Activity Summary
+
+When **finished / error** events fire, `get_agent_activity` is automatically called to fetch the agent's recent execution timeline. The last 8 activity entries (tool calls, thinking steps, etc.) are appended to the notification content, so you know what the agent actually did — not just that it "completed".
+
+### Stuck Detection
+
+When a running agent's `UpdatedAt` field hasn't changed for longer than `stuck_timeout` (default 3 minutes), the tool calls `get_agent_activity` for a second opinion. If the latest activity entry's timestamp also exceeds `stuck_timeout`, the agent is confirmed stuck and a notification is sent. The notification includes idle duration and the last activity summary for troubleshooting.
+
+> If `UpdatedAt` resumes normal updates during monitoring, the stuck state is automatically reset.
 
 ### Duplicate Notification Protection
 
@@ -96,6 +109,8 @@ paseo-notifier --config /path/to/custom.yaml --init
 monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
   interval: "5s"
+  # Agent stuck detection timeout (default 3m); fires if UpdatedAt hasn't changed
+  stuck_timeout: "3m"
 
 log_format: "text"
 

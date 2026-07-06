@@ -1,7 +1,7 @@
 package agentwatcher
 
 import (
-	"encoding/json"
+	"context"
 	"testing"
 	"time"
 )
@@ -10,28 +10,9 @@ type mockNotifier struct {
 	events []AgentEvent
 }
 
-func (m *mockNotifier) Notify(event AgentEvent) error {
+func (m *mockNotifier) Notify(ctx context.Context, event AgentEvent) error {
 	m.events = append(m.events, event)
 	return nil
-}
-
-func agentJSON(t *testing.T, id, shortID, title, provider, status, attentionReason string, requiresAttention bool) []byte {
-	t.Helper()
-	var reason *string
-	if attentionReason != "" {
-		reason = &attentionReason
-	}
-	a := AgentStatus{
-		ID:                id,
-		ShortID:           shortID,
-		Title:             title,
-		Provider:          provider,
-		Status:            status,
-		RequiresAttention: requiresAttention,
-		AttentionReason:   reason,
-	}
-	data, _ := json.Marshal(a)
-	return data
 }
 
 func TestDetectFinishedEvent(t *testing.T) {
@@ -402,5 +383,216 @@ func TestHandleConnStateContinuousConnectedDoesNotNotify(t *testing.T) {
 	w.handleConnState(false)
 	if len(sys.disconnected) != 0 {
 		t.Fatalf("continuous connected should not send notifications, got %d", len(sys.disconnected))
+	}
+}
+
+// ─────────────── detectStuckAgents 测试 ───────────────
+
+// TestSkipArchivedAgentInStuck 已归档的 Agent 应被卡死检测跳过
+func TestSkipArchivedAgentInStuck(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher("http://localhost:9999", time.Second, notifier)
+	w.SetStuckTimeout(1 * time.Nanosecond)
+
+	archivedAt := "2026-01-01T00:00:00Z"
+	agent := AgentStatus{
+		ID:         "agent-stuck-1",
+		ShortID:    "agent-stuck-1",
+		Title:      "stuck test archived",
+		Provider:   "codex",
+		Status:     "running",
+		UpdatedAt:  "2026-07-01T10:00:00Z",
+		ArchivedAt: &archivedAt,
+	}
+
+	w.prevAgents[agent.ID] = &AgentState{
+		LastUpdatedAt: agent.UpdatedAt,
+		StuckSince:    time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
+	}
+
+	w.detectStuckAgents([]AgentStatus{agent})
+
+	if len(notifier.events) != 0 {
+		t.Fatalf("archived agent should not trigger stuck event, got %d", len(notifier.events))
+	}
+}
+
+// TestSkipAttentionReasonAgentInStuck 已有 finished/error 的 Agent 应被卡死检测跳过
+func TestSkipAttentionReasonAgentInStuck(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher("http://localhost:9999", time.Second, notifier)
+	w.SetStuckTimeout(1 * time.Nanosecond)
+
+	agent := AgentStatus{
+		ID:              "agent-stuck-2",
+		ShortID:         "agent-stuck-2",
+		Title:           "finished task",
+		Provider:        "codex",
+		Status:          "idle",
+		UpdatedAt:       "2026-07-01T10:00:00Z",
+		AttentionReason: strPtr("finished"),
+	}
+
+	w.prevAgents[agent.ID] = &AgentState{
+		LastUpdatedAt: agent.UpdatedAt,
+		StuckSince:    time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
+	}
+
+	w.detectStuckAgents([]AgentStatus{agent})
+
+	if len(notifier.events) != 0 {
+		t.Fatalf("agent with AttentionReason should not trigger stuck event, got %d", len(notifier.events))
+	}
+}
+
+// TestStuckResetOnUpdatedAtChange UpdatedAt 变化时应重置 StuckSince 和 StuckNotified
+func TestStuckResetOnUpdatedAtChange(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher("http://localhost:9999", time.Second, notifier)
+
+	agent := AgentStatus{
+		ID:        "agent-stuck-3",
+		ShortID:   "agent-stuck-3",
+		Title:     "running task",
+		Provider:  "codex",
+		Status:    "running",
+		UpdatedAt: "2026-07-01T10:00:01Z",
+	}
+
+	w.prevAgents[agent.ID] = &AgentState{
+		LastUpdatedAt: "2026-07-01T10:00:00Z",
+		StuckSince:    "2026-07-01T09:00:00Z",
+		StuckNotified: true,
+	}
+
+	w.detectStuckAgents([]AgentStatus{agent})
+
+	state := w.prevAgents[agent.ID]
+	if state.StuckSince != "" {
+		t.Fatalf("StuckSince should be reset when UpdatedAt changes, got %s", state.StuckSince)
+	}
+	if state.StuckNotified {
+		t.Fatalf("StuckNotified should be false when UpdatedAt changes")
+	}
+	if state.LastUpdatedAt != "2026-07-01T10:00:01Z" {
+		t.Fatalf("LastUpdatedAt should be updated to new value, got %s", state.LastUpdatedAt)
+	}
+}
+
+// TestStuckResetOnEmptyUpdatedAt UpdatedAt 为空时应重置卡死状态
+func TestStuckResetOnEmptyUpdatedAt(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher("http://localhost:9999", time.Second, notifier)
+
+	agent := AgentStatus{
+		ID:        "agent-stuck-4",
+		ShortID:   "agent-stuck-4",
+		Title:     "running task",
+		Provider:  "codex",
+		Status:    "running",
+		UpdatedAt: "",
+	}
+
+	w.prevAgents[agent.ID] = &AgentState{
+		LastUpdatedAt: "2026-07-01T10:00:00Z",
+		StuckSince:    "2026-07-01T09:00:00Z",
+		StuckNotified: true,
+	}
+
+	w.detectStuckAgents([]AgentStatus{agent})
+
+	state := w.prevAgents[agent.ID]
+	if state.StuckSince != "" {
+		t.Fatalf("StuckSince should be reset when UpdatedAt is empty, got %s", state.StuckSince)
+	}
+	if state.StuckNotified {
+		t.Fatalf("StuckNotified should be false when UpdatedAt is empty")
+	}
+}
+
+// TestStuckNotifiedSkip 已发送过卡死通知的 Agent 不应重复发送
+func TestStuckNotifiedSkip(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher("http://localhost:9999", time.Second, notifier)
+	w.SetStuckTimeout(1 * time.Nanosecond)
+
+	agent := AgentStatus{
+		ID:        "agent-stuck-5",
+		ShortID:   "agent-stuck-5",
+		Title:     "running task",
+		Provider:  "codex",
+		Status:    "running",
+		UpdatedAt: "2026-07-01T10:00:00Z",
+	}
+
+	w.prevAgents[agent.ID] = &AgentState{
+		LastUpdatedAt: agent.UpdatedAt,
+		StuckSince:    time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
+		StuckNotified: true,
+	}
+
+	w.detectStuckAgents([]AgentStatus{agent})
+
+	if len(notifier.events) != 0 {
+		t.Fatalf("already notified stuck agent should not trigger again, got %d events", len(notifier.events))
+	}
+}
+
+// TestStuckNoPrevState 无历史状态的 Agent 应被跳过
+func TestStuckNoPrevState(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher("http://localhost:9999", time.Second, notifier)
+	w.SetStuckTimeout(1 * time.Nanosecond)
+
+	agent := AgentStatus{
+		ID:        "agent-stuck-6",
+		ShortID:   "agent-stuck-6",
+		Title:     "new agent",
+		Provider:  "codex",
+		Status:    "running",
+		UpdatedAt: "2026-07-01T10:00:00Z",
+	}
+	// 不设置 prevAgents，模拟首次出现
+
+	w.detectStuckAgents([]AgentStatus{agent})
+
+	if len(notifier.events) != 0 {
+		t.Fatalf("agent with no prev state should not trigger stuck event, got %d", len(notifier.events))
+	}
+}
+
+// TestDetectStuckEvent 完整卡死检测流程：UpdatedAt 长期无变化应触发 EventStuck 通知
+func TestDetectStuckEvent(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher("http://localhost:9999", time.Second, notifier)
+	w.SetStuckTimeout(1 * time.Nanosecond)
+
+	agent := AgentStatus{
+		ID:        "agent-stuck-7",
+		ShortID:   "agent-stuck-7",
+		Title:     "running task",
+		Provider:  "codex",
+		Status:    "running",
+		UpdatedAt: "2026-07-01T10:00:00Z",
+	}
+
+	w.prevAgents[agent.ID] = &AgentState{
+		LastUpdatedAt: agent.UpdatedAt,
+		StuckSince:    time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
+	}
+
+	w.detectStuckAgents([]AgentStatus{agent})
+
+	if len(notifier.events) != 1 {
+		t.Fatalf("expected 1 stuck event, got %d", len(notifier.events))
+	}
+	if notifier.events[0].Type != EventStuck {
+		t.Fatalf("expected EventStuck, got %s", notifier.events[0].Type)
+	}
+	if notifier.events[0].Agent.Title != "running task" {
+		t.Fatalf("expected title 'running task', got '%s'", notifier.events[0].Agent.Title)
+	}
+	if notifier.events[0].Agent.ID != "agent-stuck-7" {
+		t.Fatalf("expected agent ID 'agent-stuck-7', got '%s'", notifier.events[0].Agent.ID)
 	}
 }

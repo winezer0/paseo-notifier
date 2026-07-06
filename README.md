@@ -39,7 +39,9 @@ paseo-notifier start           # 启动服务
   Agent Watcher (每 5s 轮询)
        │
        ├── list_agents                    → 检测 finished / error
-       └── list_pending_permissions       → 检测新权限请求
+       │   └── get_agent_activity         → 附加活动摘要到通知
+       ├── list_pending_permissions       → 检测新权限请求
+       └── get_agent_activity             → 卡死二次确认
        │
        ▼
   Notifier.Notify(event)
@@ -59,6 +61,17 @@ paseo-notifier start           # 启动服务
 | ✅ 任务完成 | `attentionReason: null → "finished"` | `list_agents` |
 | ❌ 运行出错 | `attentionReason: null → "error"` | `list_agents` |
 | ⚠️ 需要交互 | `list_pending_permissions` 出现新项 | 权限请求列表 |
+| 🔔 Agent 卡死 | `UpdatedAt` 超过 `stuck_timeout` 无变化 | `get_agent_activity` 确认 |
+
+### 活动摘要
+
+**finished / error** 事件触发时，会自动调用 `get_agent_activity` 获取 Agent 最近的执行活动时间线，将最后 8 条活动记录（工具调用、思考过程等）附加到通知内容中，让你了解 Agent 做了什么，而不只是知道"完成了"。
+
+### 卡死检测
+
+当正在运行的 Agent 的 `UpdatedAt` 字段超过 `stuck_timeout`（默认 3 分钟）没有变化时，工具会调用 `get_agent_activity` 进行二次确认。如果最后一条活动记录的时间也超过了 `stuck_timeout` 阈值，则判定 Agent 卡死并发送通知。通知内容包含空闲时长和最后一条活动摘要，方便排查。
+
+> 如果 `UpdatedAt` 在监控期间恢复正常更新，卡死状态会自动重置。
 
 ### 重复通知防护
 
@@ -96,6 +109,8 @@ paseo-notifier --config /path/to/custom.yaml --init
 monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
   interval: "5s"
+  # Agent 卡死检测超时（默认 3m），UpdatedAt 超过此时间无变化则判定卡死
+  stuck_timeout: "3m"
 
 log_format: "text"
 

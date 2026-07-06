@@ -17,25 +17,9 @@ const Version = "0.0.4"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
-	DaemonURL string `yaml:"daemon_url"`
-	Interval  string `yaml:"interval"`
-}
-
-// DingTalkConfig 钉钉机器人配置（webhook 模式 + 加签）
-type DingTalkConfig struct {
-	AccessToken string `yaml:"access_token"`
-	Secret      string `yaml:"secret"`
-}
-
-// LarkWebhookConfig 飞书 Webhook 机器人配置
-type LarkWebhookConfig struct {
-	WebhookURL string `yaml:"webhook_url"`
-}
-
-// LarkAppConfig 飞书自应用配置
-type LarkAppConfig struct {
-	AppID     string `yaml:"app_id"`
-	AppSecret string `yaml:"app_secret"`
+	DaemonURL    string `yaml:"daemon_url"`
+	Interval     string `yaml:"interval"`
+	StuckTimeout string `yaml:"stuck_timeout"`
 }
 
 // ProviderItem 单个通知供应商配置项
@@ -77,6 +61,20 @@ func (m *MonitorConfig) IntervalDuration() time.Duration {
 	return d
 }
 
+// StuckTimeoutDuration 解析卡死超时字符串为 Go 时间间隔
+// 解析失败时返回 5m
+func (m *MonitorConfig) StuckTimeoutDuration() time.Duration {
+	if m.StuckTimeout == "" {
+		return 5 * time.Minute
+	}
+	d, err := time.ParseDuration(m.StuckTimeout)
+	if err != nil {
+		logging.Warnf("invalid stuck_timeout, falling back to 5m value=%s err=%v", m.StuckTimeout, err)
+		return 5 * time.Minute
+	}
+	return d
+}
+
 // DefaultLogPath 返回程序所在目录下的默认日志路径
 func DefaultLogPath() string {
 	if exe, err := os.Executable(); err == nil {
@@ -89,8 +87,9 @@ func DefaultLogPath() string {
 func DefaultConfig() *Config {
 	return &Config{
 		Monitor: MonitorConfig{
-			DaemonURL: "http://127.0.0.1:6767/mcp/agents",
-			Interval:  "5s",
+			DaemonURL:    "http://127.0.0.1:6767/mcp/agents",
+			Interval:     "5s",
+			StuckTimeout: "3m",
 		},
 		Notifier: NotifierConfig{
 			Providers: nil,

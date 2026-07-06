@@ -11,6 +11,10 @@ monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
   # 轮询间隔（Go time.Duration 格式）
   interval: "5s"
+  # Agent 卡死检测超时（默认 3m）
+  # 当 Agent 的 UpdatedAt 超过此时间无变化时，会调用 get_agent_activity 二次确认
+  # 如果最后活动时间也超过了此阈值，则判定为卡死并发送通知
+  stuck_timeout: "3m"
 
 # 通用配置（日志、语言等）
 common:

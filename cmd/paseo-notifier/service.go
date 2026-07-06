@@ -48,6 +48,7 @@ func (p *program) Start(s service.Service) error {
 		p.cfg.Monitor.IntervalDuration(),
 		p.notifier,
 	)
+	p.watcher.SetStuckTimeout(p.cfg.Monitor.StuckTimeoutDuration())
 
 	if _, ok := p.notifier.(*message.NotifyNotifier); ok {
 		p.watcher.SetSystemNotifier(func(disconnected bool, daemonURL string) {

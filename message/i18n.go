@@ -25,10 +25,11 @@ type messages struct {
 	SubjectReconnect  string
 
 	// 内容区块标题
-	SectionAgent   string
-	SectionTime    string
-	SectionLabels  string
-	SectionRequest string
+	SectionAgent    string
+	SectionTime     string
+	SectionLabels   string
+	SectionActivity string
+	SectionRequest  string
 
 	// 字段标签
 	FieldTitle      string
@@ -54,6 +55,11 @@ type messages struct {
 	FieldTime       string
 	FieldStatus     string
 
+	// 卡死事件
+	SubjectStuck      string
+	FieldStuckSince   string
+	FieldStuckDuration string
+
 	// 启动通知
 	StartupContent string
 
@@ -72,13 +78,18 @@ var msgZh = messages{
 	SubjectFinished:   ":white_check_mark: Agent 任务完成",
 	SubjectError:      ":x: Agent 任务失败",
 	SubjectPermission: ":warning: Agent 需要用户确认",
+	SubjectStuck:      ":warning: Agent 疑似卡死",
 	SubjectStartup:    ":bell: %s 已启动",
 	SubjectDisconnect: "[已断开] MCP 守护进程连接断开",
 	SubjectReconnect:  "[已重连] MCP 守护进程连接恢复",
 
+	FieldStuckSince:   "卡死时间",
+	FieldStuckDuration: "卡死时长",
+
 	SectionAgent:   "--- Agent 信息 ---",
 	SectionTime:    "--- 时间信息 ---",
 	SectionLabels:  "--- 标签 ---",
+	SectionActivity: "--- 活动摘要 ---",
 	SectionRequest: "--- 请求信息 ---",
 
 	FieldTitle:      "标题",
@@ -118,13 +129,18 @@ var msgEn = messages{
 	SubjectFinished:   ":white_check_mark: Agent task completed",
 	SubjectError:      ":x: Agent task failed",
 	SubjectPermission: ":warning: Agent requires user confirmation",
+	SubjectStuck:      ":warning: Agent may be stuck",
 	SubjectStartup:    ":bell: %s started",
 	SubjectDisconnect: "[DISCONNECTED] MCP daemon disconnected",
 	SubjectReconnect:  "[RECONNECTED] MCP daemon reconnected",
 
+	FieldStuckSince:   "Stuck since",
+	FieldStuckDuration: "Stuck duration",
+
 	SectionAgent:   "--- Agent Info ---",
 	SectionTime:    "--- Time Info ---",
 	SectionLabels:  "--- Labels ---",
+	SectionActivity: "--- Activity Summary ---",
 	SectionRequest: "--- Request Info ---",
 
 	FieldTitle:      "Title",

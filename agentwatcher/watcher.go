@@ -2,11 +2,11 @@ package agentwatcher
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/winezer0/paseo-notifier/logging"
@@ -46,6 +46,13 @@ type PermissionRequest struct {
 	} `json:"request"`
 }
 
+// ActivityEntry get_agent_activity 返回的单条活动记录
+type ActivityEntry struct {
+	Timestamp string `json:"timestamp"`
+	Type      string `json:"type"`
+	Summary   string `json:"summary"`
+}
+
 // EventType 表示事件类型
 type EventType string
 
@@ -53,19 +60,21 @@ const (
 	EventFinished          EventType = "finished"
 	EventError             EventType = "error"
 	EventPermissionRequest EventType = "permission_requested"
+	EventStuck             EventType = "stuck"
 )
 
 // AgentEvent 表示 Agent 状态变更事件
 type AgentEvent struct {
-	Type       EventType
-	Agent      AgentStatus
-	Timestamp  time.Time
-	Permission *PermissionRequest
+	Type             EventType
+	Agent            AgentStatus
+	Timestamp        time.Time
+	Permission       *PermissionRequest
+	ActivityEntries  []ActivityEntry
 }
 
 // Notifier 通知器接口
 type Notifier interface {
-	Notify(event AgentEvent) error
+	Notify(ctx context.Context, event AgentEvent) error
 }
 
 // ConnState 连接状态
@@ -102,6 +111,19 @@ type listPermissionsResponse struct {
 	} `json:"result"`
 }
 
+// agentActivityResponse MCP get_agent_activity 响应结构
+type agentActivityResponse struct {
+	Result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		StructuredContent *struct {
+			Entries []ActivityEntry `json:"entries"`
+		} `json:"structuredContent"`
+	} `json:"result"`
+}
+
 // mcpRequest MCP JSON-RPC 请求
 type mcpRequest struct {
 	JSONRPC string      `json:"jsonrpc"`
@@ -116,37 +138,61 @@ type SystemNotifyFunc func(disconnected bool, daemonURL string)
 
 // Watcher 通过 MCP API 轮询监控 Agent 状态
 type Watcher struct {
-	daemonURL   string
-	interval    time.Duration
-	notifier    Notifier
-	sysNotifyFn SystemNotifyFunc
-	connState   ConnState
-	prevAgents  map[string]*AgentState
-	prevPermIDs map[string]bool
-	httpClient  *http.Client
-	done        chan struct{}
-	mu          sync.Mutex
-	reqID       int
+	daemonURL    string
+	interval     time.Duration
+	stuckTimeout time.Duration
+	notifier     Notifier
+	sysNotifyFn  SystemNotifyFunc
+	connState    ConnState
+	prevAgents   map[string]*AgentState
+	prevPermIDs  map[string]bool
+	httpClient   *http.Client
+	done         chan struct{}
+	reqID        int
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // AgentState 内部追踪的上次 Agent 状态快照
 type AgentState struct {
 	AttentionReason    *string
 	AttentionTimestamp *string
+	LastUpdatedAt      string // 上次见到的 UpdatedAt 值，用于卡死检测
+	StuckSince         string // 首次检测到 UpdatedAt 无变化的时间（RFC3339），空串表示未卡死
+	StuckNotified      bool   // 是否已发送卡死通知，避免重复通知
 }
 
 // NewWatcher 创建新的 Agent 状态监控器
 func NewWatcher(daemonURL string, interval time.Duration, notifier Notifier) *Watcher {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Watcher{
-		daemonURL:   daemonURL,
-		interval:    interval,
-		notifier:    notifier,
-		connState:   ConnConnected,
-		prevAgents:  make(map[string]*AgentState),
-		prevPermIDs: make(map[string]bool),
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
-		done:        make(chan struct{}),
-		reqID:       0,
+		daemonURL:    daemonURL,
+		interval:     interval,
+		stuckTimeout: 3 * time.Minute,
+		notifier:     notifier,
+		connState:    ConnConnected,
+		prevAgents:   make(map[string]*AgentState),
+		prevPermIDs:  make(map[string]bool),
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        10,
+				IdleConnTimeout:     30 * time.Second,
+				MaxIdleConnsPerHost: 5,
+				DisableCompression:  false,
+			},
+		},
+		done:   make(chan struct{}),
+		ctx:    ctx,
+		cancel: cancel,
+		reqID:  0,
+	}
+}
+
+// SetStuckTimeout 设置卡死检测的超时时间
+func (w *Watcher) SetStuckTimeout(timeout time.Duration) {
+	if timeout > 0 {
+		w.stuckTimeout = timeout
 	}
 }
 
@@ -156,8 +202,6 @@ func (w *Watcher) SetSystemNotifier(fn SystemNotifyFunc) {
 }
 
 func (w *Watcher) nextID() int {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.reqID++
 	return w.reqID
 }
@@ -186,6 +230,7 @@ func (w *Watcher) Start() {
 
 // Stop 停止轮询监控
 func (w *Watcher) Stop() {
+	w.cancel()
 	close(w.done)
 }
 
@@ -213,6 +258,7 @@ func (w *Watcher) pollOnce() {
 	for _, agent := range agents {
 		w.detectAgentChange(agent)
 	}
+	w.detectStuckAgents(agents)
 	for _, perm := range perms {
 		w.detectNewPermission(perm)
 	}
@@ -255,36 +301,13 @@ func (w *Watcher) sendReconnectedNotify() {
 	}
 }
 
-func (w *Watcher) pollAgents() {
-	agents, err := w.fetchAgents()
-	if err != nil {
-		logging.Warnf("fetch agents failed: %v", err)
-		return
-	}
-
-	for _, agent := range agents {
-		w.detectAgentChange(agent)
-	}
-}
-
-func (w *Watcher) pollPermissions() {
-	perms, err := w.fetchPendingPermissions()
-	if err != nil {
-		logging.Warnf("fetch permissions failed: %v", err)
-		return
-	}
-
-	for _, perm := range perms {
-		w.detectNewPermission(perm)
-	}
-}
-
 func (w *Watcher) detectAgentChange(agent AgentStatus) {
 	prev, exists := w.prevAgents[agent.ID]
 	if !exists {
 		w.prevAgents[agent.ID] = &AgentState{
 			AttentionReason:    agent.AttentionReason,
 			AttentionTimestamp: agent.AttentionTimestamp,
+			LastUpdatedAt:      agent.UpdatedAt,
 		}
 		return
 	}
@@ -320,22 +343,152 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 		w.prevAgents[agent.ID] = &AgentState{
 			AttentionReason:    agent.AttentionReason,
 			AttentionTimestamp: agent.AttentionTimestamp,
+			LastUpdatedAt:      agent.UpdatedAt,
 		}
 
+		// 获取活动摘要，附加到通知中
+		activityEntries := w.getAgentActivity(agent.ID)
+
 		ev := AgentEvent{
-			Type:      eventType,
-			Agent:     agent,
-			Timestamp: time.Now(),
+			Type:            eventType,
+			Agent:           agent,
+			Timestamp:       time.Now(),
+			ActivityEntries: activityEntries,
 		}
-		if err := w.notifier.Notify(ev); err != nil {
+		if err := w.notifier.Notify(w.ctx, ev); err != nil {
 			logging.Errorf("notify failed event=%s agentId=%s err=%v", eventType, agent.ID, err)
 		} else {
-			logging.Infof("agent event detected event=%s agentId=%s title=%s", eventType, agent.ShortID, agent.Title)
+			logging.Infof("agent event detected event=%s agentId=%s title=%s entries=%d", eventType, agent.ShortID, agent.Title, len(activityEntries))
 		}
 	}
 
 	prev.AttentionReason = agent.AttentionReason
 	prev.AttentionTimestamp = agent.AttentionTimestamp
+}
+
+// detectStuckAgents 检查运行中的 Agent 是否有 UpdatedAt 长期无变化（卡死）
+func (w *Watcher) detectStuckAgents(agents []AgentStatus) {
+	now := time.Now()
+	for _, agent := range agents {
+		if agent.ArchivedAt != nil {
+			continue
+		}
+		// 已经 finished/error 的不需要检查
+		if agent.AttentionReason != nil {
+			continue
+		}
+
+		prev, exists := w.prevAgents[agent.ID]
+		if !exists {
+			continue
+		}
+
+		// UpdatedAt 为空或已变化 → 重置卡死状态，更新追踪值
+		if agent.UpdatedAt == "" {
+			prev.StuckSince = ""
+			prev.StuckNotified = false
+			continue
+		}
+		if agent.UpdatedAt != prev.LastUpdatedAt {
+			prev.LastUpdatedAt = agent.UpdatedAt
+			prev.StuckSince = ""
+			prev.StuckNotified = false
+			continue
+		}
+
+		// UpdatedAt 无变化 — 可能卡死
+		if prev.StuckSince == "" {
+			prev.StuckSince = now.Format(time.RFC3339)
+			continue
+		}
+
+		if prev.StuckNotified {
+			continue
+		}
+
+		stuckSince, err := time.Parse(time.RFC3339, prev.StuckSince)
+		if err != nil {
+			prev.StuckSince = ""
+			continue
+		}
+
+		if now.Sub(stuckSince) < w.stuckTimeout {
+			continue
+		}
+
+		// 超时阈值达到，查询活动时间线做二次确认
+		entries := w.getAgentActivity(agent.ID)
+		lastActivityTime := w.lastActivityTime(entries)
+
+		if lastActivityTime != nil {
+			idleDuration := now.Sub(*lastActivityTime)
+			if idleDuration < w.stuckTimeout {
+				// 最后活动时间在超时阈值内，说明 Agent 还在工作
+				logging.Debugf("agent still active agentId=%s lastActivity=%s idle=%v", agent.ShortID, lastActivityTime.Format(time.RFC3339), idleDuration)
+				prev.StuckSince = ""
+				prev.StuckNotified = false
+				continue
+			}
+			logging.Debugf("agent idle too long agentId=%s idle=%v stuckTimeout=%v", agent.ShortID, idleDuration, w.stuckTimeout)
+		} else {
+			logging.Debugf("no activity entries found agentId=%s, treating as stuck", agent.ShortID)
+		}
+
+		prev.StuckNotified = true
+		logging.Warnf("agent may be stuck agentId=%s title=%s idleSince=%s", agent.ShortID, agent.Title, prev.StuckSince)
+
+		ev := AgentEvent{
+			Type:            EventStuck,
+			Agent:           agent,
+			Timestamp:       now,
+			ActivityEntries: entries,
+		}
+		if err := w.notifier.Notify(w.ctx, ev); err != nil {
+			logging.Errorf("notify stuck failed agentId=%s err=%v", agent.ID, err)
+		}
+	}
+}
+
+// getAgentActivity 调用 get_agent_activity MCP 工具，返回 Agent 的活动记录列表
+// 调用失败时返回 nil
+func (w *Watcher) getAgentActivity(agentID string) []ActivityEntry {
+	resp, err := w.callMCP("get_agent_activity", map[string]interface{}{
+		"agentId": agentID,
+	})
+	if err != nil {
+		logging.Warnf("get_agent_activity failed agentId=%s err=%v", agentID, err)
+		return nil
+	}
+
+	var result agentActivityResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		logging.Warnf("parse agent activity failed agentId=%s err=%v", agentID, err)
+		return nil
+	}
+
+	if result.Result.StructuredContent == nil {
+		return nil
+	}
+
+	return result.Result.StructuredContent.Entries
+}
+
+// lastActivityTime 返回活动记录中最后一条的时间戳，没有记录时返回 nil
+func (w *Watcher) lastActivityTime(entries []ActivityEntry) *time.Time {
+	var latest *time.Time
+	for _, entry := range entries {
+		if entry.Timestamp == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, entry.Timestamp)
+		if err != nil {
+			continue
+		}
+		if latest == nil || t.After(*latest) {
+			latest = &t
+		}
+	}
+	return latest
 }
 
 func (w *Watcher) detectNewPermission(perm PermissionRequest) {
@@ -359,7 +512,7 @@ func (w *Watcher) detectNewPermission(perm PermissionRequest) {
 		},
 	}
 
-	if err := w.notifier.Notify(ev); err != nil {
+	if err := w.notifier.Notify(w.ctx, ev); err != nil {
 		logging.Errorf("notify permission failed agentId=%s kind=%s err=%v", perm.AgentID, perm.Request.Kind, err)
 	} else {
 		logging.Infof("permission request detected agentId=%s kind=%s title=%s", perm.AgentID, perm.Request.Kind, perm.Request.Title)
@@ -410,7 +563,7 @@ func (w *Watcher) callMCP(method string, params interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("marshal request failed: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", w.daemonURL, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(w.ctx, "POST", w.daemonURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %w", err)
 	}

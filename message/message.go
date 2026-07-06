@@ -30,6 +30,9 @@ func Build(event agentwatcher.AgentEvent) (subject, content string) {
 	case agentwatcher.EventPermissionRequest:
 		subject = msg.SubjectPermission
 		content = buildPermissionContent(event, msg)
+	case agentwatcher.EventStuck:
+		subject = msg.SubjectStuck
+		content = buildStuckContent(event, msg)
 	}
 	return
 }
@@ -44,10 +47,9 @@ func buildErrorContent(event agentwatcher.AgentEvent, msg messages) string {
 	return buildAgentTimeContent(event, msg, msg.FieldFailedAt)
 }
 
-// buildAgentTimeContent 构建 Agent 完成或失败通知的时间内容
-// timeLabel 为时间戳字段的标签（"完成时间" 或 "失败时间"）
-func buildAgentTimeContent(event agentwatcher.AgentEvent, msg messages, timeLabel string) string {
-	a := event.Agent
+// buildAgentInfoSection 构建 Agent 基本信息区块（标题、ID、模型、思考、目录）
+// 两个通知构建函数（完成/失败、卡死）共用此区块
+func buildAgentInfoSection(a agentwatcher.AgentStatus, msg messages) string {
 	var b strings.Builder
 	b.WriteString(msg.SectionAgent + "\n")
 	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldTitle, a.Title))
@@ -57,6 +59,15 @@ func buildAgentTimeContent(event agentwatcher.AgentEvent, msg messages, timeLabe
 		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldThinking, *a.ThinkingOptionID))
 	}
 	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldDirectory, a.CWD))
+	return b.String()
+}
+
+// buildAgentTimeContent 构建 Agent 完成或失败通知的时间内容
+// timeLabel 为时间戳字段的标签（"完成时间" 或 "失败时间"）
+func buildAgentTimeContent(event agentwatcher.AgentEvent, msg messages, timeLabel string) string {
+	a := event.Agent
+	var b strings.Builder
+	b.WriteString(buildAgentInfoSection(a, msg))
 
 	b.WriteString("\n" + msg.SectionTime + "\n")
 	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldCreated, formatStrTime(a.CreatedAt)))
@@ -79,6 +90,62 @@ func buildAgentTimeContent(event agentwatcher.AgentEvent, msg messages, timeLabe
 		b.WriteString("\n" + msg.SectionLabels + "\n")
 		for k, v := range a.Labels {
 			b.WriteString(fmt.Sprintf("%s: %s\n", k, v))
+		}
+	}
+
+	if len(event.ActivityEntries) > 0 {
+		b.WriteString("\n" + msg.SectionActivity + "\n")
+		// 最多显示最近 8 条活动记录
+		limit := 8
+		start := 0
+		if len(event.ActivityEntries) > limit {
+			start = len(event.ActivityEntries) - limit
+		}
+		for _, entry := range event.ActivityEntries[start:] {
+			ts := formatStrTime(entry.Timestamp)
+			if entry.Summary != "" {
+				b.WriteString(fmt.Sprintf("  • %s [%s] %s\n", ts, entry.Type, entry.Summary))
+			} else {
+				b.WriteString(fmt.Sprintf("  • %s [%s]\n", ts, entry.Type))
+			}
+		}
+	}
+
+	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
+	return b.String()
+}
+
+// buildStuckContent 构建 Agent 疑似卡死通知内容
+func buildStuckContent(event agentwatcher.AgentEvent, msg messages) string {
+	a := event.Agent
+	var b strings.Builder
+	b.WriteString(buildAgentInfoSection(a, msg))
+
+	b.WriteString("\n" + msg.SectionTime + "\n")
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldCreated, formatStrTime(a.CreatedAt)))
+	if a.LastUserMessageAt != "" {
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUser, formatStrTime(a.LastUserMessageAt)))
+	}
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldUpdated, formatStrTime(a.UpdatedAt)))
+
+	if len(a.Labels) > 0 {
+		b.WriteString("\n" + msg.SectionLabels + "\n")
+		for k, v := range a.Labels {
+			b.WriteString(fmt.Sprintf("%s: %s\n", k, v))
+		}
+	}
+
+	// 卡死通知附加空闲时长和最后活动摘要
+	lastEntry := lastActivityEntry(event.ActivityEntries)
+	if lastEntry != nil {
+		idleDuration := calcDuration(lastEntry.Timestamp, nil)
+		b.WriteString(fmt.Sprintf("\n%s: %s\n", msg.FieldStuckDuration, idleDuration))
+		b.WriteString("\n" + msg.SectionActivity + "\n")
+		ts := formatStrTime(lastEntry.Timestamp)
+		if lastEntry.Summary != "" {
+			b.WriteString(fmt.Sprintf("  • %s [%s] %s\n", ts, lastEntry.Type, lastEntry.Summary))
+		} else {
+			b.WriteString(fmt.Sprintf("  • %s [%s]\n", ts, lastEntry.Type))
 		}
 	}
 
@@ -143,10 +210,14 @@ func calcDuration(start string, end *string) string {
 	d := endT.Sub(startT)
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
 	if h > 0 {
 		return fmt.Sprintf("%dh%dm", h, m)
 	}
-	return fmt.Sprintf("%dm", m)
+	if m > 0 {
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 // modelLabel 返回人类可读的模型标签，优先使用 "模型 (供应商)" 格式
@@ -158,6 +229,26 @@ func modelLabel(agent agentwatcher.AgentStatus) string {
 		return agent.Model
 	}
 	return agent.Provider
+}
+
+// lastActivityEntry 返回活动记录中时间戳最新的那条，没有记录时返回 nil
+func lastActivityEntry(entries []agentwatcher.ActivityEntry) *agentwatcher.ActivityEntry {
+	var latest *agentwatcher.ActivityEntry
+	var latestTime time.Time
+	for i := range entries {
+		if entries[i].Timestamp == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, entries[i].Timestamp)
+		if err != nil {
+			continue
+		}
+		if latest == nil || t.After(latestTime) {
+			latest = &entries[i]
+			latestTime = t
+		}
+	}
+	return latest
 }
 
 // kindToLabel 将权限请求的 kind 字符串转换为本地化标签
