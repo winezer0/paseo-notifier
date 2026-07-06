@@ -5,31 +5,32 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/winezer0/paseo-notifier/logging"
 )
 
 // AgentStatus 对应 list_agents 返回的单个 Agent 状态
 type AgentStatus struct {
-	ID                    string            `json:"id"`
-	ShortID               string            `json:"shortId"`
-	Title                 string            `json:"title"`
-	Provider              string            `json:"provider"`
-	Model                 string            `json:"model"`
-	ThinkingOptionID      *string           `json:"thinkingOptionId"`
-	EffectiveThinkingID   *string           `json:"effectiveThinkingOptionId"`
-	Status                string            `json:"status"`
-	CWD                   string            `json:"cwd"`
-	CreatedAt             string            `json:"createdAt"`
-	UpdatedAt             string            `json:"updatedAt"`
-	LastUserMessageAt     string            `json:"lastUserMessageAt"`
-	RequiresAttention     bool              `json:"requiresAttention"`
-	AttentionReason       *string           `json:"attentionReason"`
-	AttentionTimestamp    *string           `json:"attentionTimestamp"`
-	ArchivedAt            *string           `json:"archivedAt"`
-	Labels                map[string]string `json:"labels"`
+	ID                  string            `json:"id"`
+	ShortID             string            `json:"shortId"`
+	Title               string            `json:"title"`
+	Provider            string            `json:"provider"`
+	Model               string            `json:"model"`
+	ThinkingOptionID    *string           `json:"thinkingOptionId"`
+	EffectiveThinkingID *string           `json:"effectiveThinkingOptionId"`
+	Status              string            `json:"status"`
+	CWD                 string            `json:"cwd"`
+	CreatedAt           string            `json:"createdAt"`
+	UpdatedAt           string            `json:"updatedAt"`
+	LastUserMessageAt   string            `json:"lastUserMessageAt"`
+	RequiresAttention   bool              `json:"requiresAttention"`
+	AttentionReason     *string           `json:"attentionReason"`
+	AttentionTimestamp  *string           `json:"attentionTimestamp"`
+	ArchivedAt          *string           `json:"archivedAt"`
+	Labels              map[string]string `json:"labels"`
 }
 
 // PermissionRequest 对应 list_pending_permissions 的权限请求
@@ -163,9 +164,7 @@ func (w *Watcher) nextID() int {
 
 // Start 开始轮询监控
 func (w *Watcher) Start() {
-	slog.Info("agent watcher started",
-		"daemon", w.daemonURL,
-		"interval", w.interval)
+	logging.Infof("agent watcher started daemon=%s interval=%s", w.daemonURL, w.interval)
 
 	go func() {
 		ticker := time.NewTicker(w.interval)
@@ -178,7 +177,7 @@ func (w *Watcher) Start() {
 			case <-ticker.C:
 				w.pollOnce()
 			case <-w.done:
-				slog.Info("agent watcher stopped")
+				logging.Info("agent watcher stopped")
 				return
 			}
 		}
@@ -202,7 +201,7 @@ func (w *Watcher) pollOnce() {
 		var permsErr error
 		perms, permsErr = w.fetchPendingPermissions()
 		if permsErr != nil {
-			slog.Warn("fetch permissions failed", "err", permsErr)
+			logging.Warnf("fetch permissions failed: %v", permsErr)
 		}
 	}
 
@@ -243,14 +242,14 @@ func (w *Watcher) handleConnState(disconnected bool) {
 }
 
 func (w *Watcher) sendDisconnectedNotify() {
-	slog.Warn("mcp daemon disconnected, agent notifications paused")
+	logging.Warn("mcp daemon disconnected, agent notifications paused")
 	if w.sysNotifyFn != nil {
 		w.sysNotifyFn(true, w.daemonURL)
 	}
 }
 
 func (w *Watcher) sendReconnectedNotify() {
-	slog.Info("mcp daemon reconnected, agent notifications resumed")
+	logging.Info("mcp daemon reconnected, agent notifications resumed")
 	if w.sysNotifyFn != nil {
 		w.sysNotifyFn(false, w.daemonURL)
 	}
@@ -259,7 +258,7 @@ func (w *Watcher) sendReconnectedNotify() {
 func (w *Watcher) pollAgents() {
 	agents, err := w.fetchAgents()
 	if err != nil {
-		slog.Warn("fetch agents failed", "err", err)
+		logging.Warnf("fetch agents failed: %v", err)
 		return
 	}
 
@@ -271,7 +270,7 @@ func (w *Watcher) pollAgents() {
 func (w *Watcher) pollPermissions() {
 	perms, err := w.fetchPendingPermissions()
 	if err != nil {
-		slog.Warn("fetch permissions failed", "err", err)
+		logging.Warnf("fetch permissions failed: %v", err)
 		return
 	}
 
@@ -329,15 +328,9 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			Timestamp: time.Now(),
 		}
 		if err := w.notifier.Notify(ev); err != nil {
-			slog.Error("notify failed",
-				"event", eventType,
-				"agentId", agent.ID,
-				"err", err)
+			logging.Errorf("notify failed event=%s agentId=%s err=%v", eventType, agent.ID, err)
 		} else {
-			slog.Info("agent event detected",
-				"event", eventType,
-				"agentId", agent.ShortID,
-				"title", agent.Title)
+			logging.Infof("agent event detected event=%s agentId=%s title=%s", eventType, agent.ShortID, agent.Title)
 		}
 	}
 
@@ -367,15 +360,9 @@ func (w *Watcher) detectNewPermission(perm PermissionRequest) {
 	}
 
 	if err := w.notifier.Notify(ev); err != nil {
-		slog.Error("notify permission failed",
-			"agentId", perm.AgentID,
-			"kind", perm.Request.Kind,
-			"err", err)
+		logging.Errorf("notify permission failed agentId=%s kind=%s err=%v", perm.AgentID, perm.Request.Kind, err)
 	} else {
-		slog.Info("permission request detected",
-			"agentId", perm.AgentID,
-			"kind", perm.Request.Kind,
-			"title", perm.Request.Title)
+		logging.Infof("permission request detected agentId=%s kind=%s title=%s", perm.AgentID, perm.Request.Kind, perm.Request.Title)
 	}
 }
 

@@ -35,11 +35,15 @@ func WriteDefaultConfig(cfgPath string) error {
 // Load searches for config in program directory.
 // Returns default config if none found.
 func Load(path string) (*Config, error) {
+	if path == "" {
+		path = AppConfigPath()
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		// 如果是文件不存在，可以返回 nil, nil 让上层处理，或者返回具体错误
 		if os.IsNotExist(err) {
-			return nil, err
+			// 没有配置文件时，返回内置默认配置（仅日志输出，无通知供应商）
+			return DefaultConfig(), nil
 		}
 		return nil, fmt.Errorf("read config file %s: %w", path, err)
 	}

@@ -1,11 +1,11 @@
 package config
 
 import (
-	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/winezer0/paseo-notifier/logging"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,11 +53,10 @@ type NotifierConfig struct {
 
 // CommonConfig 通用配置（日志、语言、dry-run 等）
 type CommonConfig struct {
-	LogFormat  string `yaml:"log_format"`
-	LogPath    string `yaml:"log_path"`
-	LogConsole *bool  `yaml:"log_console"`
+	LogLevel   string `yaml:"log_level"`
+	LogFile    string `yaml:"log_file"`
+	LogConsole string `yaml:"log_console"`
 	Language   string `yaml:"language"`
-	DryRun     bool   `yaml:"dryrun"`
 }
 
 // Config 总配置
@@ -72,7 +71,7 @@ type Config struct {
 func (m *MonitorConfig) IntervalDuration() time.Duration {
 	d, err := time.ParseDuration(m.Interval)
 	if err != nil {
-		slog.Warn("invalid monitor interval, falling back to 5s", "value", m.Interval, "err", err)
+		logging.Warnf("invalid monitor interval, falling back to 5s value=%s err=%v", m.Interval, err)
 		return 5 * time.Second
 	}
 	return d
@@ -88,7 +87,6 @@ func DefaultLogPath() string {
 
 // DefaultConfig 返回带有内置默认值的配置
 func DefaultConfig() *Config {
-	t := true
 	return &Config{
 		Monitor: MonitorConfig{
 			DaemonURL: "http://127.0.0.1:6767/mcp/agents",
@@ -98,9 +96,9 @@ func DefaultConfig() *Config {
 			Providers: nil,
 		},
 		Common: CommonConfig{
-			LogFormat:  "text",
-			LogPath:    "",
-			LogConsole: &t,
+			LogFile:    "",
+			LogLevel:   "info",
+			LogConsole: "LM",
 		},
 	}
 }

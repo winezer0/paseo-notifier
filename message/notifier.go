@@ -3,12 +3,12 @@ package message
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/nikoksr/notify"
 	"github.com/winezer0/paseo-notifier/agentwatcher"
 	"github.com/winezer0/paseo-notifier/config"
+	"github.com/winezer0/paseo-notifier/logging"
 )
 
 // noopNotifier 不执行任何通知操作
@@ -16,9 +16,7 @@ type noopNotifier struct{}
 
 // Notify 实现了 agentwatcher.Notifier，仅记录日志不发送实际通知
 func (n *noopNotifier) Notify(event agentwatcher.AgentEvent) error {
-	slog.Debug("event received but no notifier configured",
-		"type", event.Type,
-		"agent", event.Agent.ShortID)
+	logging.Debugf("event received but no notifier configured type=%s agent=%s", event.Type, event.Agent.ShortID)
 	return nil
 }
 
@@ -28,7 +26,7 @@ func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	providers := cfg.Notifier.Providers
 
 	if len(providers) == 0 {
-		slog.Warn("no notification providers configured, events will be logged only")
+		logging.Warn("no notification providers configured, events will be logged only")
 		return &noopNotifier{}
 	}
 
@@ -36,22 +34,22 @@ func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	for _, p := range providers {
 		factory, ok := GetProvider(p.Type)
 		if !ok {
-			slog.Warn("unknown provider type, skipping", "type", p.Type)
+			logging.Warnf("unknown provider type, skipping type=%s", p.Type)
 			continue
 		}
 
 		svc, err := factory(p.Config)
 		if err != nil {
-			slog.Warn("failed to build provider, skipping", "type", p.Type, "err", err)
+			logging.Warnf("failed to build provider, skipping type=%s err=%v", p.Type, err)
 			continue
 		}
 
 		services = append(services, svc)
-		slog.Info("notification provider enabled", "type", p.Type)
+		logging.Infof("notification provider enabled type=%s", p.Type)
 	}
 
 	if len(services) == 0 {
-		slog.Warn("no valid notification provider configured, events will be logged only")
+		logging.Warn("no valid notification provider configured, events will be logged only")
 		return &noopNotifier{}
 	}
 
@@ -65,14 +63,19 @@ func SendStartupNotification(notifier agentwatcher.Notifier) {
 	if _, ok := notifier.(*NotifyNotifier); ok {
 		subject := fmt.Sprintf(msg.SubjectStartup, config.AppName)
 		content := msg.StartupContent
-		slog.Info("sending startup notification")
+		fmt.Println()
+		fmt.Println("=== Notification ===")
+		fmt.Println("Subject:", subject)
+		fmt.Println(content)
+		fmt.Println("====================")
+		fmt.Println()
 		if err := notify.Send(context.Background(), subject, content); err != nil {
-			slog.Warn("startup notification failed", "err", err)
+			logging.Warnf("startup notification failed: %v", err)
 		} else {
-			slog.Info("startup notification sent")
+			logging.Info("startup notification sent")
 		}
 	} else {
-		slog.Info("startup notification skipped (no external notifier configured)")
+		logging.Info("startup notification skipped (no external notifier configured)")
 	}
 }
 
