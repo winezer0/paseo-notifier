@@ -24,6 +24,13 @@ func (w *Watcher) fetchAgents() ([]AgentStatus, error) {
 		return nil, fmt.Errorf("parse agents response failed: %w", err)
 	}
 
+	// debug: 打印 Content 原始文本，排查 archivedAt 缺失原因
+	for i, c := range result.Result.Content {
+		if c.Text != "" {
+			logging.Debugf("list_agents content[%d] type=%s text=%s", i, c.Type, c.Text)
+		}
+	}
+
 	return result.Result.StructuredContent.Agents, nil
 }
 
@@ -155,55 +162,7 @@ func (w *Watcher) sendAgentPrompt(agentID, prompt string) error {
 	return nil
 }
 
-// CleanupArchivedAgents 获取已归档的 Agent 并根据保留时间清理
-// retention <= 0 时清理所有已归档 Agent；retention > 0 时仅清理归档时间早于 now-retention 的 Agent
-// 返回成功清理的 Agent 数量
-func (w *Watcher) CleanupArchivedAgents(retention time.Duration) (int, error) {
-	agents, err := w.fetchAgents()
-	if err != nil {
-		return 0, fmt.Errorf("fetch agents failed: %w", err)
-	}
 
-	cutoff := time.Now().Add(-retention)
-
-	var count int
-	for _, agent := range agents {
-		if agent.ArchivedAt == nil {
-			continue
-		}
-		// 有保留时间要求时，检查归档时间是否足够老
-		if retention > 0 {
-			archivedAt, err := time.Parse(time.RFC3339, *agent.ArchivedAt)
-			if err != nil {
-				logging.Warnf("parse archivedAt failed agentId=%s archivedAt=%s err=%v", agent.ID, *agent.ArchivedAt, err)
-				continue
-			}
-			if archivedAt.After(cutoff) {
-				continue
-			}
-		}
-		if err := w.killAgent(agent.ID); err != nil {
-			logging.Warnf("kill archived agent failed agentId=%s err=%v", agent.ID, err)
-			continue
-		}
-		count++
-	}
-
-	logging.Infof("cleanup completed: %d archived agents killed", count)
-	return count, nil
-}
-
-// killAgent 调用 kill_agent MCP 工具永久终止指定 Agent
-func (w *Watcher) killAgent(agentID string) error {
-	_, err := w.callMCP("kill_agent", map[string]interface{}{
-		"agentId": agentID,
-	})
-	if err != nil {
-		return fmt.Errorf("kill_agent failed: %w", err)
-	}
-	logging.Infof("agent killed agentId=%s", agentID)
-	return nil
-}
 
 // archiveAgent 调用 archive_agent MCP 工具软删除指定 Agent
 func (w *Watcher) archiveAgent(agentID string) error {

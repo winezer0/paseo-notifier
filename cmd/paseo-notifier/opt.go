@@ -15,7 +15,7 @@ type cliOptions struct {
 	Config     string `short:"c" long:"config" description:"config file path" value-name:"FILE"`
 	Init       bool   `short:"i" long:"init" description:"print default config and exit"`
 	Version    bool   `short:"v" long:"version" description:"print version and exit"`
-	Cleanup    string `short:"C" long:"cleanup" optional:"true" optional-value:"12h" description:"cleanup archived agents before given duration (e.g. 12h, 0h for all); default: 12h" value-name:"DURATION"`
+	
 	LogFile    string `long:"lf" description:"Log file path"`
 	LogLevel   string `long:"ll" description:"Log level: allowed debug/info/warn/error"`
 	LogConsole string `long:"lc" description:"Log format for console, supported T(time),L(level),C(caller),F(func),M(Msg), Turn off when empty or (off)"`

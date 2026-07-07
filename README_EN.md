@@ -38,7 +38,7 @@ Daemon MCP API (127.0.0.1:6767)
        ▼
   Agent Watcher (polls every 5s)
        │
-       ├── list_agents                    → detect finished / error
+       ├── list_agents                    → detect finished / error / stuck
        │   └── get_agent_activity         → attach activity summary
        ├── list_pending_permissions       → detect new permission requests
        └── get_agent_activity             → confirm stuck status
@@ -46,9 +46,7 @@ Daemon MCP API (127.0.0.1:6767)
        ▼
   Notifier.Notify(event)
        │
-       ▼
-  notify.UseServices(svc...)
-       │
+       ├── Console output (with emoji)
        ├── DingTalk bot
        ├── Feishu Webhook
        └── Feishu App
@@ -61,7 +59,9 @@ Daemon MCP API (127.0.0.1:6767)
 | ✅ Task finished | `attentionReason: null → "finished"` | `list_agents` |
 | ❌ Error occurred | `attentionReason: null → "error"` | `list_agents` |
 | ⚠️ Interaction needed | New item in `list_pending_permissions` | Permission request list |
-| 🔔 Agent stuck | `UpdatedAt` unchanged beyond `stuck_timeout` | `get_agent_activity` confirms |
+| 🔔 Agent stuck | `UpdatedAt` unchanged beyond `stuck_detect_timeout` | `get_agent_activity` confirms |
+| 🔔 Startup notification | Notifier initialized | First startup |
+| 🔌 Disconnect/reconnect | MCP daemon connection lost/restored | Poll success/failure |
 
 ### Activity Summary
 
@@ -69,9 +69,26 @@ When **finished / error** events fire, `get_agent_activity` is automatically cal
 
 ### Stuck Detection
 
-When a running agent's `UpdatedAt` field hasn't changed for longer than `stuck_detect_timeout` (default 120 seconds), the tool calls `get_agent_activity` for a second opinion. If the latest activity entry's timestamp also exceeds `stuck_timeout`, the agent is confirmed stuck and a notification is sent. The notification includes idle duration and the last activity summary for troubleshooting.
+When a running agent's `UpdatedAt` field hasn't changed for longer than `stuck_detect_timeout` (default 120 seconds), the tool calls `get_agent_activity` for a second opinion. If the latest activity entry's timestamp also exceeds `stuck_detect_timeout`, the agent is confirmed stuck and a notification is sent. The notification includes idle duration and the last activity summary for troubleshooting.
+
+After stuck detection, the auto-restart flow can be configured (`stuck_restart_delay` / `stuck_restart_retry`):
+1. Send stuck notification after `stuck_detect_timeout`
+2. After `stuck_restart_delay`, auto-send a `continue` prompt to recover
+3. Give up after `stuck_restart_retry` retries
 
 > If `UpdatedAt` resumes normal updates during monitoring, the stuck state is automatically reset.
+
+### Notification Types
+
+| Notification | Trigger | Channels |
+|:---|:---|:---|
+| Task completed | Agent task finished normally | All configured providers |
+| Task error | Agent execution error | All configured providers |
+| Permission request | Agent needs user confirmation | All configured providers |
+| Stuck warning | Agent unresponsive for long period | All configured providers |
+| Startup notification | Notifier initialized | All configured providers |
+| Disconnect notification | MCP daemon connection lost | All configured providers |
+| Reconnect notification | MCP daemon connection restored | All configured providers |
 
 ### Duplicate Notification Protection
 
@@ -106,6 +123,7 @@ paseo-notifier --config /path/to/custom.yaml --init
 ### Full Config Example
 
 ```yaml
+# Monitor configuration
 monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
   interval: "5s"
@@ -115,37 +133,51 @@ monitor:
   stuck_restart_delay: 0s
   stuck_restart_retry: 5
 
-log_format: "text"
+# Common settings (log, language)
+common:
+  # Log level: debug/info/warn/error (default info)
+  log_level: "info"
+  # Log file path (default: <program-dir>/paseo-notifier.log)
+  # Leave empty to use default; auto-rotates when exceeding 10MB
+  log_file: ""
+  # Console log format, T=time L=level C=caller M=message (default TLM)
+  # Set to false or off to disable console output
+  log_console: "TLM"
+  # Notification language
+  # auto: auto-detect (Chinese system→zh, others→en)
+  # zh:   Chinese
+  # en:   English
+  language: "auto"
 
-# Log file path (default: <program-dir>/paseo-notifier.log)
-# Leave empty to use default; auto-rotates when exceeding 10MB
-log_path: ""
-
-# Also output logs to console (default true)
-log_console: true
-
-# Notification message language (default auto, auto-detects system language)
-# Options: auto / zh / en
-language: "auto"
-
+# Notification provider configuration
+# providers is an array; multiple providers can be configured simultaneously
+# When no provider is configured, events are logged only
 notifier:
   providers:
-    - type: "dingtalk"
+    # Console output (with emoji formatting)
+    - type: "console"
       config:
-        access_token: "your-dingtalk-access-token"
-        secret: "your-dingtalk-signing-secret"
+        enable: true
 
-    - type: "lark_webhook"
-      config:
-        webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-id"
+    # DingTalk custom bot (Webhook + signing)
+    # - type: "dingtalk"
+    #   config:
+    #     access_token: ""
+    #     secret: ""
 
-    - type: "lark_app"
-      config:
-        app_id: "cli_your-app-id"
-        app_secret: "your-app-secret"
-        receivers:
-          - type: chat_id
-            value: "oc_your-chat-id"
+    # Feishu group bot (Webhook)
+    # - type: "lark_webhook"
+    #   config:
+    #     webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-id"
+
+    # Feishu app (supports specifying receivers)
+    # - type: "lark_app"
+    #   config:
+    #     app_id: "cli_your-app-id"
+    #     app_secret: "your-app-secret"
+    #     receivers:
+    #       - type: chat_id
+    #         value: "oc_your-chat-id"
 ```
 
 `providers` is an array that supports multiple providers simultaneously. All enabled providers send notifications in parallel.
@@ -154,6 +186,7 @@ notifier:
 
 | Type | Description | Config Parameters |
 |:---|:---|:---|
+| `console` | Console output (with emoji formatting) | `enable` (bool) |
 | `dingtalk` | DingTalk custom bot (Webhook + signing) | `access_token`, `secret` |
 | `lark_webhook` | Feishu group bot (Webhook) | `webhook_url` |
 | `lark_app` | Feishu app (supports specifying receivers) | `app_id`, `app_secret`, `receivers[]` (type: open_id/user_id/union_id/email/chat_id, value) |
@@ -198,6 +231,15 @@ paseo-notifier --version
 
 # Specify config file
 paseo-notifier --config /path/to/config.yaml
+
+# Override log level (debug/info/warn/error)
+paseo-notifier --ll debug
+
+# Custom console format (T=time L=level C=caller F=func M=message)
+paseo-notifier --lc "TLCM"
+
+# Specify log file path
+paseo-notifier --lf /path/to/custom.log
 ```
 
 ### View Logs

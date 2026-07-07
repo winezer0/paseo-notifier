@@ -14,13 +14,10 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/kardianos/service"
-	"github.com/winezer0/paseo-notifier/agentwatcher"
 	"github.com/winezer0/paseo-notifier/config"
 	"github.com/winezer0/paseo-notifier/logging"
-	"github.com/winezer0/paseo-notifier/message"
 )
 
 func main() {
@@ -35,33 +32,6 @@ func main() {
 		if err := config.WriteDefaultConfig(opts.Config); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
-		}
-		return
-	}
-
-	if opts.Cleanup != "" {
-		cfg := initConfigAndLogger(opts)
-		defer logging.Sync()
-
-		durStr := opts.Cleanup
-		retention, err := time.ParseDuration(durStr)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: invalid cleanup duration %q: %v\n", durStr, err)
-			os.Exit(1)
-		}
-
-		w := agentwatcher.NewWatcher(cfg.Monitor, &message.NoopNotifier{}, "")
-		defer w.Stop()
-
-		count, err := w.CleanupArchivedAgents(retention)
-		if err != nil {
-			logging.Errorf("cleanup failed: %v", err)
-			os.Exit(1)
-		}
-		if retention <= 0 {
-			logging.Infof("cleanup completed: %d archived agents killed", count)
-		} else {
-			logging.Infof("cleanup completed: %d archived agents (older than %s) killed", count, retention)
 		}
 		return
 	}

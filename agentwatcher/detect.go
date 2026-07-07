@@ -84,6 +84,10 @@ func (w *Watcher) detectStuckAgents(agents []AgentStatus) {
 		if agent.ArchivedAt != nil {
 			continue
 		}
+		// 只对运行中的 Agent 进行卡死检测，idle 状态为等待用户输入
+		if agent.Status != "running" {
+			continue
+		}
 		// 已经 finished/error 的不需要检查卡死，但处理中的 Agent 仍可能卡死
 		if agent.AttentionReason != nil && (*agent.AttentionReason == "finished" || *agent.AttentionReason == "error") {
 			continue
