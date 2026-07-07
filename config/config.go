@@ -13,15 +13,15 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.0.5"
+const Version = "0.0.6"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
-	DaemonURL            string `yaml:"daemon_url"`
-	Interval             string `yaml:"interval"`
-	StuckDetectTimeout   string `yaml:"stuck_detect_timeout"`  // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 120s
-	StuckRestartDelay    string `yaml:"stuck_restart_delay"`   // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 0s
-	StuckRestartRetry    int    `yaml:"stuck_restart_retry"`   // 自动重启最大重试次数，默认 5
+	DaemonURL          string `yaml:"daemon_url"`
+	Interval           string `yaml:"interval"`
+	StuckDetectTimeout string `yaml:"stuck_detect_timeout"` // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 120s
+	StuckRestartDelay  string `yaml:"stuck_restart_delay"`  // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 0s
+	StuckRestartRetry  int    `yaml:"stuck_restart_retry"`  // 自动重启最大重试次数，默认 5
 }
 
 // ProviderItem 单个通知供应商配置项
