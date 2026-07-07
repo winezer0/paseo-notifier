@@ -38,7 +38,7 @@ paseo-notifier start           # 启动服务
        ▼
   Agent Watcher (每 5s 轮询)
        │
-       ├── list_agents                    → 检测 finished / error
+       ├── list_agents                    → 检测 finished / error / 卡死
        │   └── get_agent_activity         → 附加活动摘要到通知
        ├── list_pending_permissions       → 检测新权限请求
        └── get_agent_activity             → 卡死二次确认
@@ -46,9 +46,7 @@ paseo-notifier start           # 启动服务
        ▼
   Notifier.Notify(event)
        │
-       ▼
-  notify.UseServices(svc...)
-       │
+       ├── 控制台输出（带 emoji）
        ├── 钉钉机器人
        ├── 飞书 Webhook
        └── 飞书自应用
@@ -61,7 +59,9 @@ paseo-notifier start           # 启动服务
 | ✅ 任务完成 | `attentionReason: null → "finished"` | `list_agents` |
 | ❌ 运行出错 | `attentionReason: null → "error"` | `list_agents` |
 | ⚠️ 需要交互 | `list_pending_permissions` 出现新项 | 权限请求列表 |
-| 🔔 Agent 卡死 | `UpdatedAt` 超过 `stuck_timeout` 无变化 | `get_agent_activity` 确认 |
+| 🔔 Agent 卡死 | `UpdatedAt` 超过 `stuck_detect_timeout` 无变化 | `get_agent_activity` 确认 |
+| 🔔 启动通知 | 通知器启动时 | 首次初始化 |
+| 🔌 断连/重连 | MCP 守护进程连接断开/恢复 | 轮询请求失败/成功 |
 
 ### 活动摘要
 
@@ -71,7 +71,24 @@ paseo-notifier start           # 启动服务
 
 当正在运行的 Agent 的 `UpdatedAt` 字段超过 `stuck_detect_timeout`（默认 120 秒）没有变化时，工具会调用 `get_agent_activity` 进行二次确认。如果最后一条活动记录的时间也超过了 `stuck_timeout` 阈值，则判定 Agent 卡死并发送通知。通知内容包含空闲时长和最后一条活动摘要，方便排查。
 
+检测到卡死后，可配置自动重启流程（`stuck_restart_delay` / `stuck_restart_retry`）：
+1. 达到 `stuck_detect_timeout` 后发送卡死通知
+2. 再经过 `stuck_restart_delay` 后自动发送 `continue` 提示尝试恢复
+3. 重试达 `stuck_restart_retry` 次后放弃
+
 > 如果 `UpdatedAt` 在监控期间恢复正常更新，卡死状态会自动重置。
+
+### 通知类型
+
+| 通知 | 触发时机 | 发送渠道 |
+|:---|:---|:---|
+| 任务完成 | Agent 任务正常结束 | 所有已配置供应商 |
+| 任务出错 | Agent 执行出错 | 所有已配置供应商 |
+| 权限请求 | Agent 需要用户确认 | 所有已配置供应商 |
+| 卡死警告 | Agent 长时间无响应 | 所有已配置供应商 |
+| 启动通知 | 通知器启动时 | 所有已配置供应商 |
+| 断连通知 | MCP 守护进程连接断开 | 所有已配置供应商 |
+| 重连通知 | MCP 守护进程连接恢复 | 所有已配置供应商 |
 
 ### 重复通知防护
 
@@ -106,46 +123,63 @@ paseo-notifier --config /path/to/custom.yaml --init
 ### 完整配置示例
 
 ```yaml
+# 监控相关配置
 monitor:
   daemon_url: "http://127.0.0.1:6767/mcp/agents"
+  # 轮询间隔（Go time.Duration 格式）
   interval: "5s"
-  # 卡死检测超时（Go time.Duration 格式），0s/false/空 = 禁用，默认 120s
+  # 卡死检测超时，0s/false/空 = 禁用，默认 120s
   stuck_detect_timeout: 120s
   # 检测到卡死后延迟重启，0s/false/空 = 禁用，默认 0s
   stuck_restart_delay: 0s
+  # 自动重启最大重试次数，默认 5
   stuck_restart_retry: 5
 
-log_format: "text"
+# 通用配置（日志、语言等）
+common:
+  # 日志级别，可选 debug/info/warn/error（默认 info）
+  log_level: "info"
+  # 日志文件路径（默认：程序所在目录下的 paseo-notifier.log）
+  # 留空则使用默认路径，日志文件超 10MB 自动轮转清理
+  log_file: ""
+  # 控制台日志格式，T=时间 L=级别 C=调用者 M=消息（默认 TLM）
+  # 设为 false 或 off 关闭控制台输出
+  log_console: "TLM"
+  # 通知消息语言
+  # auto: 自动检测系统语言（中文系统→zh，其他→en）
+  # zh:   中文
+  # en:   英文
+  language: "auto"
 
-# 日志文件路径（默认：程序所在目录下的 paseo-notifier.log）
-# 留空则使用默认路径，日志文件超 10MB 自动轮转清理
-log_path: ""
-
-# 是否同时输出日志到控制台（默认 true）
-log_console: true
-
-# 通知消息语言（默认 auto，自动检测系统语言）
-# 可选：auto / zh / en
-language: "auto"
-
+# 通知供应商配置
+# providers 是一个数组，可以同时配置多个供应商
+# 不配置任何供应商时，事件仅输出到日志
 notifier:
   providers:
-    - type: "dingtalk"
+    # 控制台输出（带 emoji 格式），enable: true 时启用
+    - type: "console"
       config:
-        access_token: "your-dingtalk-access-token"
-        secret: "your-dingtalk-signing-secret"
+        enable: true
 
-    - type: "lark_webhook"
-      config:
-        webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-id"
+    # 钉钉自定义机器人（Webhook + 加签）
+    # - type: "dingtalk"
+    #   config:
+    #     access_token: ""
+    #     secret: ""
 
-    - type: "lark_app"
-      config:
-        app_id: "cli_your-app-id"
-        app_secret: "your-app-secret"
-        receivers:
-          - type: chat_id
-            value: "oc_your-chat-id"
+    # 飞书群聊机器人（Webhook 模式）
+    # - type: "lark_webhook"
+    #   config:
+    #     webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-id"
+
+    # 飞书自应用（支持指定接收者）
+    # - type: "lark_app"
+    #   config:
+    #     app_id: "cli_your-app-id"
+    #     app_secret: "your-app-secret"
+    #     receivers:
+    #       - type: chat_id
+    #         value: "oc_your-chat-id"
 ```
 
 `providers` 是一个数组，支持同时配置多个供应商。所有启用的供应商会同时发送通知。
@@ -154,6 +188,7 @@ notifier:
 
 | 类型 | 说明 | 配置参数 |
 |:---|:---|:---|
+| `console` | 控制台输出（带 emoji 格式） | `enable`（bool） |
 | `dingtalk` | 钉钉自定义机器人（Webhook + 加签） | `access_token`, `secret` |
 | `lark_webhook` | 飞书群聊机器人（Webhook） | `webhook_url` |
 | `lark_app` | 飞书自应用（支持指定接收者） | `app_id`, `app_secret`, `receivers[]`（type: open_id/user_id/union_id/email/chat_id, value） |
@@ -198,6 +233,15 @@ paseo-notifier --version
 
 # 指定配置文件
 paseo-notifier --config /path/to/config.yaml
+
+# 覆盖日志级别（debug/info/warn/error）
+paseo-notifier --ll debug
+
+# 自定义控制台日志格式（T=时间 L=级别 C=调用者 F=函数 M=消息）
+paseo-notifier --lc "TLCM"
+
+# 指定日志文件路径
+paseo-notifier --lf /path/to/custom.log
 ```
 
 ### 查看日志
