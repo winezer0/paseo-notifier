@@ -17,6 +17,9 @@ monitor:
   stuck_restart_delay: 0s
   # 自动重启最大重试次数，默认 5
   stuck_restart_retry: 5
+  # 运行中状态心跳通知间隔（Go time.Duration 格式），0s/0m/0h/false/空 = 禁用，默认 5m
+  # 对持续运行超过此间隔且用户无交互的 Agent，定期发送运行状态通知
+  running_status_interval: 5m
 
 # 通用配置（日志、语言等）
 common:

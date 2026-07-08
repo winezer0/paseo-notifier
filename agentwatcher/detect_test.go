@@ -108,7 +108,7 @@ func TestDeduplicateFinishedEvent(t *testing.T) {
 }
 
 func TestDetectNewPermission(t *testing.T) {
-	notifier := &mockNotifier{}
+	notifier := &mockNotifier{done: make(chan struct{}, 10)}
 	w := testWatcher(notifier)
 
 	perm1 := PermissionRequest{
@@ -121,6 +121,7 @@ func TestDetectNewPermission(t *testing.T) {
 	perm1.Request.Description = "写入 /tmp/test.txt"
 
 	w.detectNewPermission(perm1)
+	<-notifier.done // 等待异步通知完成
 
 	if len(notifier.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(notifier.events))
@@ -131,7 +132,7 @@ func TestDetectNewPermission(t *testing.T) {
 }
 
 func TestSkipDuplicatePermission(t *testing.T) {
-	notifier := &mockNotifier{}
+	notifier := &mockNotifier{done: make(chan struct{}, 10)}
 	w := testWatcher(notifier)
 
 	perm1 := PermissionRequest{
@@ -142,7 +143,9 @@ func TestSkipDuplicatePermission(t *testing.T) {
 	perm1.Request.Kind = "tool"
 
 	w.detectNewPermission(perm1)
+	<-notifier.done // 等待第一个异步通知
 	w.detectNewPermission(perm1)
+	// 第二个是重复的，不会发通知
 
 	if len(notifier.events) != 1 {
 		t.Fatalf("expected 1 event (deduplicated), got %d", len(notifier.events))

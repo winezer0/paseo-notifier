@@ -56,6 +56,7 @@ const (
 	EventStuck             EventType = "stuck"
 	EventStuckWarning      EventType = "stuck_warning"
 	EventStillActive       EventType = "still_active"
+	EventRunningStatus     EventType = "running_status"
 )
 
 // AgentEvent 表示 Agent 状态变更事件
@@ -89,13 +90,15 @@ type SystemNotifyFunc func(disconnected bool, daemonURL string)
 type AgentState struct {
 	AttentionReason    *string
 	AttentionTimestamp *string
-	LastUpdatedAt      string // 上次见到的 UpdatedAt 值，用于卡死检测
-	StuckSince         string // 首次检测到 UpdatedAt 无变化的时间（RFC3339），空串表示未卡死
-	StuckNotified      bool   // 是否已发送确认卡死通知
-	StuckActionTaken   bool   // 是否已执行自动重启操作
-	RetryCount         int    // 重启重试次数，达到 maxRetries 后执行复活
-	StuckWarningSent   bool   // 是否已发送疑似卡死警告
-	StillActiveNotified bool  // 是否已发送活动正常通知
+	LastUpdatedAt        string // 上次见到的 UpdatedAt 值，用于卡死检测
+	StuckSince           string // 首次检测到 UpdatedAt 无变化的时间（RFC3339），空串表示未卡死
+	StuckNotified        bool   // 是否已发送确认卡死通知
+	StuckActionTaken     bool   // 是否已执行自动重启操作
+	RetryCount           int    // 重启重试次数，达到 maxRetries 后执行复活
+	StuckWarningSent     bool   // 是否已发送疑似卡死警告
+	StillActiveNotified  bool   // 是否已发送活动正常通知
+	StuckChecking        bool   // 正在被后台 goroutine 异步检查，主循环跳过
+	LastRunningNotify    *time.Time // 上次发送运行中状态通知的时间，nil=从未发送
 }
 
 // listAgentsResponse MCP list_agents 响应结构

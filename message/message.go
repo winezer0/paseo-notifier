@@ -39,18 +39,21 @@ func Build(event agentwatcher.AgentEvent) (subject, content string) {
 	case agentwatcher.EventStillActive:
 		subject = msg.SubjectStillActive
 		content = buildStillActiveContent(event, msg)
+	case agentwatcher.EventRunningStatus:
+		subject = msg.SubjectRunningStatus
+		content = buildRunningStatusContent(event, msg)
 	}
 	return
 }
 
 // buildFinishedContent 构建 Agent 任务完成通知内容
 func buildFinishedContent(event agentwatcher.AgentEvent, msg messages) string {
-	return buildAgentTimeContent(event, msg, msg.FieldCompleted)
+	return buildAgentTimeContent(event, msg, msg.FieldTaskCompletedAt)
 }
 
 // buildErrorContent 构建 Agent 任务失败通知内容
 func buildErrorContent(event agentwatcher.AgentEvent, msg messages) string {
-	return buildAgentTimeContent(event, msg, msg.FieldFailedAt)
+	return buildAgentTimeContent(event, msg, msg.FieldTaskFailedAt)
 }
 
 // buildAgentInfoSection 构建 Agent 基本信息区块（标题、ID、模型、思考、目录）
@@ -76,21 +79,21 @@ func buildAgentTimeContent(event agentwatcher.AgentEvent, msg messages, timeLabe
 	b.WriteString(buildAgentInfoSection(a, msg))
 
 	b.WriteString("\n" + msg.SectionTime + "\n")
-	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldCreated, formatStrTime(a.CreatedAt)))
-	if a.LastUserMessageAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUser, formatStrTime(a.LastUserMessageAt)))
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentCreatedAt, formatStrTime(a.CreatedAt)))
+	if a.CreatedAt != "" {
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentDuration, calcDuration(a.CreatedAt, a.AttentionTimestamp)))
 	}
-	b.WriteString(fmt.Sprintf("%s: %s\n", timeLabel, formatTime(a.AttentionTimestamp)))
+	if a.UpdatedAt != "" {
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentUpdatedAt, formatStrTime(a.UpdatedAt)))
+	}
 	startTime := a.CreatedAt
 	if a.LastUserMessageAt != "" {
 		startTime = a.LastUserMessageAt
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUserAsk, formatStrTime(a.LastUserMessageAt)))
 	}
+	b.WriteString(fmt.Sprintf("%s: %s\n", timeLabel, formatTime(a.AttentionTimestamp)))
 	if a.CreatedAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldDuration, calcDuration(startTime, a.AttentionTimestamp)))
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentRuntime, calcDuration(a.CreatedAt, a.AttentionTimestamp)))
-	}
-	if a.UpdatedAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldUpdated, formatStrTime(a.UpdatedAt)))
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldTaskDuration, calcDuration(startTime, a.AttentionTimestamp)))
 	}
 
 	if len(a.Labels) > 0 {
@@ -100,23 +103,7 @@ func buildAgentTimeContent(event agentwatcher.AgentEvent, msg messages, timeLabe
 		}
 	}
 
-	if len(event.ActivityEntries) > 0 {
-		b.WriteString("\n" + msg.SectionActivity + "\n")
-		// 最多显示最近 8 条活动记录
-		limit := 8
-		start := 0
-		if len(event.ActivityEntries) > limit {
-			start = len(event.ActivityEntries) - limit
-		}
-		for _, entry := range event.ActivityEntries[start:] {
-			ts := formatStrTime(entry.Timestamp)
-			if entry.Summary != "" {
-				b.WriteString(fmt.Sprintf("  • %s [%s] %s\n", ts, entry.Type, entry.Summary))
-			} else {
-				b.WriteString(fmt.Sprintf("  • %s [%s]\n", ts, entry.Type))
-			}
-		}
-	}
+	buildActivitySection(&b, event.ActivityEntries, msg)
 
 	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
 	return b.String()
@@ -129,13 +116,13 @@ func buildStuckContent(event agentwatcher.AgentEvent, msg messages) string {
 	b.WriteString(buildAgentInfoSection(a, msg))
 
 	b.WriteString("\n" + msg.SectionTime + "\n")
-	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldCreated, formatStrTime(a.CreatedAt)))
-	if a.LastUserMessageAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUser, formatStrTime(a.LastUserMessageAt)))
-	}
-	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldUpdated, formatStrTime(a.UpdatedAt)))
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentCreatedAt, formatStrTime(a.CreatedAt)))
 	if a.CreatedAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentRuntime, calcDuration(a.CreatedAt, nil)))
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentDuration, calcDuration(a.CreatedAt, nil)))
+	}
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentUpdatedAt, formatStrTime(a.UpdatedAt)))
+	if a.LastUserMessageAt != "" {
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUserAsk, formatStrTime(a.LastUserMessageAt)))
 	}
 
 	if len(a.Labels) > 0 {
@@ -157,22 +144,7 @@ func buildStuckContent(event agentwatcher.AgentEvent, msg messages) string {
 		b.WriteString(fmt.Sprintf("\n%s: %s\n", msg.FieldStuckDuration, idleDuration))
 	}
 
-	if len(event.ActivityEntries) > 0 {
-		b.WriteString("\n" + msg.SectionActivity + "\n")
-		limit := 8
-		start := 0
-		if len(event.ActivityEntries) > limit {
-			start = len(event.ActivityEntries) - limit
-		}
-		for _, entry := range event.ActivityEntries[start:] {
-			ts := formatStrTime(entry.Timestamp)
-			if entry.Summary != "" {
-				b.WriteString(fmt.Sprintf("  • %s [%s] %s\n", ts, entry.Type, entry.Summary))
-			} else {
-				b.WriteString(fmt.Sprintf("  • %s [%s]\n", ts, entry.Type))
-			}
-		}
-	}
+	buildActivitySection(&b, event.ActivityEntries, msg)
 
 	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
 	return b.String()
@@ -186,11 +158,11 @@ func buildStuckWarningContent(event agentwatcher.AgentEvent, msg messages) strin
 	b.WriteString(buildAgentInfoSection(a, msg))
 
 	b.WriteString("\n" + msg.SectionTime + "\n")
-	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldCreated, formatStrTime(a.CreatedAt)))
-	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldUpdated, formatStrTime(a.UpdatedAt)))
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentCreatedAt, formatStrTime(a.CreatedAt)))
 	if a.CreatedAt != "" {
-		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentRuntime, calcDuration(a.CreatedAt, nil)))
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentDuration, calcDuration(a.CreatedAt, nil)))
 	}
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentUpdatedAt, formatStrTime(a.UpdatedAt)))
 	b.WriteString(fmt.Sprintf("\n%s: %s\n", msg.FieldStuckDuration, formatDuration(event.IdleDuration)))
 	b.WriteString(fmt.Sprintf(msg.FieldStuckCheckNotice, formatDuration(event.IdleDuration)) + "\n")
 
@@ -205,25 +177,59 @@ func buildStillActiveContent(event agentwatcher.AgentEvent, msg messages) string
 	var b strings.Builder
 	b.WriteString(buildAgentInfoSection(a, msg))
 
-	if len(event.ActivityEntries) > 0 {
-		b.WriteString("\n" + msg.SectionActivity + "\n")
-		limit := 8
-		start := 0
-		if len(event.ActivityEntries) > limit {
-			start = len(event.ActivityEntries) - limit
-		}
-		for _, entry := range event.ActivityEntries[start:] {
-			ts := formatStrTime(entry.Timestamp)
-			if entry.Summary != "" {
-				b.WriteString(fmt.Sprintf("  • %s [%s] %s\n", ts, entry.Type, entry.Summary))
-			} else {
-				b.WriteString(fmt.Sprintf("  • %s [%s]\n", ts, entry.Type))
-			}
-		}
-	}
+	buildActivitySection(&b, event.ActivityEntries, msg)
 
 	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
 	return b.String()
+}
+
+// buildRunningStatusContent 构建 Agent 运行中状态通知内容
+func buildRunningStatusContent(event agentwatcher.AgentEvent, msg messages) string {
+	a := event.Agent
+	var b strings.Builder
+	b.WriteString(buildAgentInfoSection(a, msg))
+
+	b.WriteString("\n" + msg.SectionTime + "\n")
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentCreatedAt, formatStrTime(a.CreatedAt)))
+	if a.CreatedAt != "" {
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentDuration, calcDuration(a.CreatedAt, nil)))
+	}
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldAgentUpdatedAt, formatStrTime(a.UpdatedAt)))
+	if a.LastUserMessageAt != "" {
+		b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldLastUserAsk, formatStrTime(a.LastUserMessageAt)))
+	}
+
+	startTime := a.CreatedAt
+	if a.LastUserMessageAt != "" {
+		startTime = a.LastUserMessageAt
+	}
+	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldRunningDuration, calcDuration(startTime, nil)))
+
+	buildActivitySection(&b, event.ActivityEntries, msg)
+
+	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
+	return b.String()
+}
+
+// buildActivitySection 向 Builder 写入活动记录摘要（最多 8 条）
+func buildActivitySection(b *strings.Builder, entries []agentwatcher.ActivityEntry, msg messages) {
+	if len(entries) == 0 {
+		return
+	}
+	b.WriteString("\n" + msg.SectionActivity + "\n")
+	limit := 8
+	start := 0
+	if len(entries) > limit {
+		start = len(entries) - limit
+	}
+	for _, entry := range entries[start:] {
+		ts := formatStrTime(entry.Timestamp)
+		if entry.Summary != "" {
+			b.WriteString(fmt.Sprintf("  • %s [%s] %s\n", ts, entry.Type, entry.Summary))
+		} else {
+			b.WriteString(fmt.Sprintf("  • %s [%s]\n", ts, entry.Type))
+		}
+	}
 }
 
 // formatDuration 将 time.Duration 格式化为 "XdXhXm" / "XmXs" / "Xs" 人类可读格式

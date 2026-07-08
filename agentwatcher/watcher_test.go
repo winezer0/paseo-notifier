@@ -20,10 +20,14 @@ func testWatcher(notifier *mockNotifier) *Watcher {
 // mockNotifier 模拟通知器，记录接收的事件
 type mockNotifier struct {
 	events []AgentEvent
+	done   chan struct{} // 非空时通知测试 goroutine 已接收事件
 }
 
 func (m *mockNotifier) Notify(ctx context.Context, event AgentEvent) error {
 	m.events = append(m.events, event)
+	if m.done != nil {
+		m.done <- struct{}{}
+	}
 	return nil
 }
 
