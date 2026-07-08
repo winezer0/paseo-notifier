@@ -56,21 +56,33 @@ func (w *Watcher) getAgentActivity(agentID string) []ActivityEntry {
 		"agentId": agentID,
 	})
 	if err != nil {
-		logging.Warnf("get_agent_activity failed agentId=%s err=%v", agentID, err)
+		logging.Errorf("get_agent_activity failed agentId=%s err=%v", agentID, err)
 		return nil
 	}
 
 	var result agentActivityResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
-		logging.Warnf("parse agent activity failed agentId=%s err=%v", agentID, err)
+		logging.Warnf("parse agent activity response failed agentId=%s err=%v", agentID, err)
 		return nil
 	}
 
-	if result.Result.StructuredContent == nil {
-		return nil
+	var allEntries []ActivityEntry
+	if result.Result.StructuredContent != nil && len(result.Result.StructuredContent.Entries) > 0 {
+		// 优先使用 StructuredContent.Entries
+		allEntries = result.Result.StructuredContent.Entries
+	} else {
+		// 备选：从 Content[].Text JSON 中合并所有活动记录
+		for _, c := range result.Result.Content {
+			if len(c.Text) > 0 {
+				logging.Debugf("get agent activity from Content[].Text agentId=%s text=%s", agentID, c.Text)
+				var entries []ActivityEntry
+				if err := json.Unmarshal([]byte(c.Text), &entries); err == nil {
+					allEntries = append(allEntries, entries...)
+				}
+			}
+		}
 	}
-
-	return result.Result.StructuredContent.Entries
+	return allEntries
 }
 
 // getAgentStatus 调用 get_agent_status MCP 工具，返回 Agent 的最新状态文本摘要
@@ -161,8 +173,6 @@ func (w *Watcher) sendAgentPrompt(agentID, prompt string) error {
 	logging.Infof("agent prompt sent agentId=%s", agentID)
 	return nil
 }
-
-
 
 // archiveAgent 调用 archive_agent MCP 工具软删除指定 Agent
 func (w *Watcher) archiveAgent(agentID string) error {
