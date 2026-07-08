@@ -32,17 +32,18 @@ type messages struct {
 	SectionRequest  string
 
 	// 字段标签
-	FieldTitle      string
-	FieldAgent      string
-	FieldModel      string
-	FieldThinking   string
-	FieldDirectory  string
-	FieldCreated    string
-	FieldLastUser   string
-	FieldCompleted  string
-	FieldFailedAt   string
-	FieldDuration   string
-	FieldUpdated    string
+	FieldTitle        string
+	FieldAgent        string
+	FieldModel        string
+	FieldThinking     string
+	FieldDirectory    string
+	FieldCreated      string
+	FieldLastUser     string
+	FieldCompleted    string
+	FieldFailedAt     string
+	FieldDuration     string
+	FieldAgentRuntime string
+	FieldUpdated      string
 	FieldPermAgent  string
 	FieldPermType   string
 	FieldPermTitle  string
@@ -56,11 +57,14 @@ type messages struct {
 	FieldStatus     string
 
 	// 卡死事件
-	SubjectStuck       string
-	FieldStuckSince    string
-	FieldStuckDuration string
-	FieldStuckReason   string
-	ContinuePrompt     string // 继续任务的提示文本
+	SubjectStuck          string
+	SubjectStuckWarning   string
+	SubjectStillActive    string
+	FieldStuckSince       string
+	FieldStuckDuration    string
+	FieldStuckReason      string
+	FieldStuckCheckNotice string
+	ContinuePrompt        string // 继续任务的提示文本
 
 	// 启动通知
 	StartupContent string
@@ -80,15 +84,18 @@ var msgZh = messages{
 	SubjectFinished:   ":white_check_mark: Agent 任务完成",
 	SubjectError:      ":x: Agent 任务失败",
 	SubjectPermission: ":warning: Agent 需要用户确认",
-	SubjectStuck:      ":warning: Agent 疑似卡死",
+	SubjectStuck:          ":warning: Agent 疑似卡死",
+	SubjectStuckWarning:   ":warning: Agent 可能卡死（正在确认）",
+	SubjectStillActive:    ":information_source: Agent 活动正常",
 	SubjectStartup:    ":bell: %s 已启动",
 	SubjectDisconnect: "[已断开] MCP 守护进程连接断开",
 	SubjectReconnect:  "[已重连] MCP 守护进程连接恢复",
 
-	FieldStuckSince:   "卡死时间",
-	FieldStuckDuration: "卡死时长",
-	ContinuePrompt:     "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
-	FieldStuckReason:   "卡死原因",
+	FieldStuckSince:       "卡死时间",
+	FieldStuckDuration:    "卡死时长",
+	FieldStuckCheckNotice: "UpdatedAt 已超过 %s 无变化，正在进行活动检查...",
+	ContinuePrompt:        "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
+	FieldStuckReason:      "卡死原因",
 
 	SectionAgent:   "--- Agent 信息 ---",
 	SectionTime:    "--- 时间信息 ---",
@@ -105,8 +112,9 @@ var msgZh = messages{
 	FieldLastUser:   "最后用户消息",
 	FieldCompleted:  "完成时间",
 	FieldFailedAt:   "失败时间",
-	FieldDuration:   "运行时长",
-	FieldUpdated:    "最后更新",
+	FieldDuration:     "运行时长",
+	FieldAgentRuntime: "Agent运行时长",
+	FieldUpdated:      "最后更新",
 	FieldPermAgent:  "Agent",
 	FieldPermType:   "类型",
 	FieldPermTitle:  "标题",
@@ -133,15 +141,18 @@ var msgEn = messages{
 	SubjectFinished:   ":white_check_mark: Agent task completed",
 	SubjectError:      ":x: Agent task failed",
 	SubjectPermission: ":warning: Agent requires user confirmation",
-	SubjectStuck:      ":warning: Agent may be stuck",
+	SubjectStuck:          ":warning: Agent may be stuck",
+	SubjectStuckWarning:   ":warning: Agent may be stuck (checking)",
+	SubjectStillActive:    ":information_source: Agent is still active",
 	SubjectStartup:    ":bell: %s started",
 	SubjectDisconnect: "[DISCONNECTED] MCP daemon disconnected",
 	SubjectReconnect:  "[RECONNECTED] MCP daemon reconnected",
 
-	FieldStuckSince:   "Stuck since",
-	FieldStuckDuration: "Stuck duration",
-	ContinuePrompt:     "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
-	FieldStuckReason:   "Stuck reason",
+	FieldStuckSince:       "Stuck since",
+	FieldStuckDuration:    "Stuck duration",
+	FieldStuckCheckNotice: "UpdatedAt unchanged for %s, checking agent activity...",
+	ContinuePrompt:        "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
+	FieldStuckReason:      "Stuck reason",
 
 	SectionAgent:   "--- Agent Info ---",
 	SectionTime:    "--- Time Info ---",
@@ -158,8 +169,9 @@ var msgEn = messages{
 	FieldLastUser:   "Last user message",
 	FieldCompleted:  "Completed",
 	FieldFailedAt:   "Failed at",
-	FieldDuration:   "Duration",
-	FieldUpdated:    "Last updated",
+	FieldDuration:     "Duration",
+	FieldAgentRuntime: "Agent runtime",
+	FieldUpdated:      "Last updated",
 	FieldPermAgent:  "Agent",
 	FieldPermType:   "Type",
 	FieldPermTitle:  "Title",

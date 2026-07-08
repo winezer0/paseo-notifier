@@ -54,6 +54,8 @@ const (
 	EventError             EventType = "error"
 	EventPermissionRequest EventType = "permission_requested"
 	EventStuck             EventType = "stuck"
+	EventStuckWarning      EventType = "stuck_warning"
+	EventStillActive       EventType = "still_active"
 )
 
 // AgentEvent 表示 Agent 状态变更事件
@@ -63,6 +65,7 @@ type AgentEvent struct {
 	Timestamp        time.Time
 	Permission       *PermissionRequest
 	ActivityEntries  []ActivityEntry
+	IdleDuration     time.Duration // 卡死相关事件的静止时长（UpdatedAt 无变化时间）
 }
 
 // Notifier 通知器接口
@@ -88,9 +91,11 @@ type AgentState struct {
 	AttentionTimestamp *string
 	LastUpdatedAt      string // 上次见到的 UpdatedAt 值，用于卡死检测
 	StuckSince         string // 首次检测到 UpdatedAt 无变化的时间（RFC3339），空串表示未卡死
-	StuckNotified      bool   // 是否已发送卡死通知
+	StuckNotified      bool   // 是否已发送确认卡死通知
 	StuckActionTaken   bool   // 是否已执行自动重启操作
 	RetryCount         int    // 重启重试次数，达到 maxRetries 后执行复活
+	StuckWarningSent   bool   // 是否已发送疑似卡死警告
+	StillActiveNotified bool  // 是否已发送活动正常通知
 }
 
 // listAgentsResponse MCP list_agents 响应结构
