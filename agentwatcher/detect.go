@@ -138,7 +138,7 @@ func (w *Watcher) detectStuckAgents(agents []AgentStatus) {
 // 运行中状态心跳通知
 // ──────────────────────────────────────────────────────────
 
-// checkRunningAgents 检查运行中的 Agent，当静止时间超过间隔时发送状态心跳通知
+// checkRunningAgents 检查运行中的 Agent，当用户无交互超过间隔时发送运行中状态心跳通知
 func (w *Watcher) checkRunningAgents(agents []AgentStatus) {
 	if w.runningStatusInterval == 0 {
 		return
@@ -153,19 +153,20 @@ func (w *Watcher) checkRunningAgents(agents []AgentStatus) {
 			continue
 		}
 
-		// 计算静止时长：以 UpdatedAt 和 LastUserMessageAt 中较新的为准
-		lastActive := agent.UpdatedAt
-		if agent.LastUserMessageAt != "" {
-			if agent.UpdatedAt == "" || agent.LastUserMessageAt > agent.UpdatedAt {
-				lastActive = agent.LastUserMessageAt
-			}
+		// 计算用户无交互时长：以 LastUserMessageAt 为准，为空则回退到 CreatedAt
+		lastUserTime := agent.LastUserMessageAt
+		if lastUserTime == "" {
+			lastUserTime = agent.CreatedAt
 		}
-		lastActiveTime, err := time.Parse(time.RFC3339, lastActive)
-		if err != nil || lastActive == "" {
+		if lastUserTime == "" {
 			continue
 		}
-		silence := now.Sub(lastActiveTime)
-		if silence < w.runningStatusInterval {
+		lastUserTimeParsed, err := time.Parse(time.RFC3339, lastUserTime)
+		if err != nil {
+			continue
+		}
+		sinceLastUser := now.Sub(lastUserTimeParsed)
+		if sinceLastUser < w.runningStatusInterval {
 			continue
 		}
 
@@ -190,7 +191,7 @@ func (w *Watcher) checkRunningAgents(agents []AgentStatus) {
 			if err := w.notifier.Notify(w.ctx, ev); err != nil {
 				logging.Errorf("notify running status failed agentId=%s err=%v", agent.ID, err)
 			} else {
-				logging.Infof("running status notified agentId=%s title=%s silence=%s", agent.ShortID, agent.Title, silence)
+				logging.Infof("running status notified agentId=%s title=%s idle=%s", agent.ShortID, agent.Title, sinceLastUser)
 			}
 		}(agent)
 	}
