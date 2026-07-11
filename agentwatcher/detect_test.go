@@ -443,3 +443,66 @@ func TestStuckNoPrevState(t *testing.T) {
 		t.Fatalf("agent with no prev state should not trigger stuck event, got %d", len(notifier.events))
 	}
 }
+
+// ─────────────── auto continue colon detection tests ───────────────
+
+func TestHasTrailingColon(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		expect bool
+	}{
+		{"zh colon", "以下方案：", true},
+		{"en colon", "Here are the items:", true},
+		{"zh colon with space", "以下方案：  \n", true},
+		{"en colon trailing space", "items:   ", true},
+		{"no colon", "任务已完成。", false},
+		{"empty", "", false},
+		{"only spaces", "   ", false},
+		{"comma ending", "第一，第二，", false},
+		{"period ending", "done.", false},
+		{"question mark", "是否继续？", false},
+		{"colon in middle", "note: done", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasTrailingColon(tt.input)
+			if got != tt.expect {
+				t.Errorf("hasTrailingColon(%q) = %v, want %v", tt.input, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestShouldAutoContinueByColon(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := testWatcher(notifier)
+	w.autoContinue = true
+	w.continuePrompt = "继续任务"
+
+	tests := []struct {
+		name    string
+		summary string
+		want    bool
+	}{
+		{"zh colon interrupted", "以下是我整理的分析结果：", true},
+		{"en colon interrupted", "Here are the suggestions:", true},
+		{"continue keyword zh", "是否继续？", true},
+		{"continue keyword en", "Shall I continue?", true},
+		{"normal finished", "任务已完成。", false},
+		{"listing completed", "以上是全部内容。", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entries := []ActivityEntry{
+				{Timestamp: "2026-07-01T10:00:00Z", Type: "tool_call", Summary: tt.summary},
+			}
+			got := w.shouldAutoContinue(entries, "test-agent")
+			if got != tt.want {
+				t.Errorf("shouldAutoContinue(%q) = %v, want %v", tt.summary, got, tt.want)
+			}
+		})
+	}
+}

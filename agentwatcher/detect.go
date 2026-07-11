@@ -365,9 +365,15 @@ func (w *Watcher) runStuckCheck(agent AgentStatus, stuckSince time.Time) {
 // 自动继续检测
 // ──────────────────────────────────────────────────────────
 
-// continueKeywords 自动继续触发的关键词列表（取末尾 15 字符匹配）
+// continueKeywords 自动继续触发的关键词列表
 var continueKeywordsZh = []string{"继续"}
 var continueKeywordsEn = []string{"continue"}
+
+// trailingColonRunes 触发自动继续的结尾冒号类型（可扩展）
+var trailingColonRunes = []rune{':', '：'}
+
+// 统一修剪符号集合（去重空白、中英文标点）
+const allTrimSet = " \t\n\r！？。，；：“”‘’()（）[]【】、～·!?,.;:\"'{}<>-~`"
 
 func (w *Watcher) shouldAutoContinue(entries []ActivityEntry, agentID string) bool {
 	if len(entries) == 0 {
@@ -380,14 +386,23 @@ func (w *Watcher) shouldAutoContinue(entries []ActivityEntry, agentID string) bo
 		return false
 	}
 
-	// 检测中文关键词
-	if hit, kw, tail := matchKeywordTail(summary, 5, continueKeywordsZh); hit {
+	// 冒号结尾检测：原始文本以冒号结尾（可能后跟空白），说明 Agent 输出被截断
+	if hasTrailingColon(summary) {
+		logging.Debugf("auto continue triggered by trailing colon agentId=%s summary=%q", agentID, summary)
+		return true
+	}
+
+	// 第一步：全局统一去除首尾杂字符，只做一次，避免重复清理
+	trim := strings.Trim(summary, allTrimSet)
+
+	// 中文关键词：清理后文本取末尾5字符匹配
+	if hit, kw, tail := matchTailKeywords(trim, 10, continueKeywordsZh); hit {
 		logging.Debugf("auto continue triggered by zh keyword=%q tailZh=%q agentId=%s", kw, tail, agentID)
 		return true
 	}
 
-	// 检测英文关键词
-	if hit, kw, tail := matchKeywordTail(summary, 20, continueKeywordsEn); hit {
+	// 英文关键词：清理后文本取末尾20字符匹配
+	if hit, kw, tail := matchTailKeywords(trim, 20, continueKeywordsEn); hit {
 		logging.Debugf("auto continue triggered by en keyword=%q tailEn=%q agentId=%s", kw, tail, agentID)
 		return true
 	}
@@ -395,9 +410,9 @@ func (w *Watcher) shouldAutoContinue(entries []ActivityEntry, agentID string) bo
 	return false
 }
 
-// matchKeywordTail 给定原文、尾部截取长度、关键词列表，检测是否命中
-func matchKeywordTail(s string, tailLen int, keywords []string) (hit bool, hitKw string, tail string) {
-	tail = getTailRune(s, tailLen)
+// matchTailKeywords 接收已清理干净的文本，截取尾部N字符并匹配关键词
+func matchTailKeywords(cleanStr string, tailLen int, keywords []string) (hit bool, hitKw string, tail string) {
+	tail = getTailRune(cleanStr, tailLen)
 	for _, kw := range keywords {
 		if strings.Contains(tail, kw) {
 			return true, kw, tail
@@ -413,4 +428,20 @@ func getTailRune(s string, n int) string {
 		return s
 	}
 	return string(r[len(r)-n:])
+}
+
+// hasTrailingColon 检查文本去除尾部空格后是否以冒号结尾
+// 用于检测 Agent 在列举/阐述时被截断的情况，如 "以下方案：" 或 "Here are the items:"
+func hasTrailingColon(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return false
+	}
+	lastRune := []rune(trimmed)[len([]rune(trimmed))-1]
+	for _, colon := range trailingColonRunes {
+		if lastRune == colon {
+			return true
+		}
+	}
+	return false
 }
