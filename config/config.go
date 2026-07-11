@@ -13,7 +13,7 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.0.8"
+const Version = "0.0.9"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
@@ -23,6 +23,7 @@ type MonitorConfig struct {
 	StuckRestartDelay     string `yaml:"stuck_restart_delay"`     // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 0s
 	StuckRestartRetry     int    `yaml:"stuck_restart_retry"`     // 自动重启最大重试次数，默认 5
 	RunningStatusInterval string `yaml:"running_status_interval"` // 运行中状态心跳通知间隔，0s/false/空 = 禁用，默认 5m
+	AutoContinue          bool   `yaml:"auto_continue"`           // 任务完成后自动继续（匹配"继续"关键词时自动发送继续提示）
 }
 
 // ProviderItem 单个通知供应商配置项
@@ -122,6 +123,7 @@ func DefaultConfig() *Config {
 			StuckRestartDelay:     "0s",
 			StuckRestartRetry:     5,
 			RunningStatusInterval: "5m",
+			AutoContinue:          false,
 		},
 		Notifier: NotifierConfig{
 			Providers: nil,

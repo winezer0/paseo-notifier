@@ -51,7 +51,7 @@ func TestStuckDetectionE2E(t *testing.T) {
 		StuckDetectTimeout: "10s",
 		StuckRestartDelay:  "20s",
 		StuckRestartRetry:  5,
-	}, notifier, "请输出当前的地区和时间信息")
+	}, notifier, "继续任务", "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。")
 
 	// 1. 创建测试 Agent
 	agentID, err := w.createAgent(testCWD, "stuck-e2e-test", provider, "请等待")
@@ -174,7 +174,7 @@ func TestMCPConnectivity(t *testing.T) {
 	w := NewWatcher(config.MonitorConfig{
 		DaemonURL: daemonURL,
 		Interval:  "5s",
-	}, notifier, "")
+	}, notifier, "继续任务", "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。")
 
 	// 1. list_agents 连通性验证
 	agents, err := w.fetchAgents()

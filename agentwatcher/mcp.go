@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/winezer0/paseo-notifier/logging"
@@ -24,10 +25,10 @@ func (w *Watcher) fetchAgents() ([]AgentStatus, error) {
 		return nil, fmt.Errorf("parse agents response failed: %w", err)
 	}
 
-	// debug: 打印 Content 原始文本，排查 archivedAt 缺失原因
+	// debug: 打印 list_agents Content 长度，排查 archivedAt 缺失原因
 	for i, c := range result.Result.Content {
 		if c.Text != "" {
-			logging.Debugf("list_agents content[%d] type=%s text=%s", i, c.Type, c.Text)
+			logging.Debugf("list_agents content[%d] type=%s len=%d", i, c.Type, len(c.Text))
 		}
 	}
 
@@ -49,11 +50,17 @@ func (w *Watcher) fetchPendingPermissions() ([]PermissionRequest, error) {
 	return result.Result.StructuredContent.Permissions, nil
 }
 
+// agentActivityInner Content[].Text 内层 JSON 结构
+type agentActivityInner struct {
+	Content string `json:"content"` // 活动文本摘要
+}
+
 // getAgentActivity 调用 get_agent_activity MCP 工具，返回 Agent 的活动记录列表
 // 调用失败时返回 nil
 func (w *Watcher) getAgentActivity(agentID string) []ActivityEntry {
 	resp, err := w.callMCP("get_agent_activity", map[string]interface{}{
 		"agentId": agentID,
+		"limit":   100, // 只取最近 100 条，减少数据量
 	})
 	if err != nil {
 		logging.Errorf("get_agent_activity failed agentId=%s err=%v", agentID, err)
@@ -66,23 +73,102 @@ func (w *Watcher) getAgentActivity(agentID string) []ActivityEntry {
 		return nil
 	}
 
-	var allEntries []ActivityEntry
+	// 优先使用 StructuredContent.Entries
 	if result.Result.StructuredContent != nil && len(result.Result.StructuredContent.Entries) > 0 {
-		// 优先使用 StructuredContent.Entries
-		allEntries = result.Result.StructuredContent.Entries
-	} else {
-		// 备选：从 Content[].Text JSON 中合并所有活动记录
-		for _, c := range result.Result.Content {
-			if len(c.Text) > 0 {
-				logging.Debugf("get agent activity from Content[].Text agentId=%s text=%s", agentID, c.Text)
-				var entries []ActivityEntry
-				if err := json.Unmarshal([]byte(c.Text), &entries); err == nil {
-					allEntries = append(allEntries, entries...)
+		return result.Result.StructuredContent.Entries
+	}
+
+	// 备选：从 Content[].Text JSON 中解析
+	// Content[0].Text 格式: {"agentId":"...","updateCount":...,"content":"Showing X of Y activities\n\n[entry]\n..."}
+	for _, c := range result.Result.Content {
+		if len(c.Text) == 0 {
+			continue
+		}
+		var inner agentActivityInner
+		if err := json.Unmarshal([]byte(c.Text), &inner); err != nil {
+			continue
+		}
+		entries := parseActivityTextDump(inner.Content)
+		if len(entries) > 0 {
+			return entries
+		}
+	}
+	return nil
+}
+
+// parseActivityTextDump 解析 "Showing X of Y activities\n\n[type] content\n..." 格式的文本为 ActivityEntry 列表
+func parseActivityTextDump(text string) []ActivityEntry {
+	lines := strings.Split(text, "\n")
+	var entries []ActivityEntry
+	started := false
+	buf := "" // 多行累计缓冲
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !started {
+			if strings.HasPrefix(trimmed, "Showing ") && strings.Contains(trimmed, " activities") {
+				started = true
+			}
+			continue
+		}
+		if trimmed == "" {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "[") {
+			// 新活动行，先 flush 缓冲
+			if buf != "" {
+				entries = append(entries, ActivityEntry{
+					Summary: buf,
+				})
+				buf = ""
+			}
+			entryType, summary := parseActivityLine(trimmed)
+			if len(summary) > 50 {
+				summary = summary[:50] + "..."
+			}
+			entries = append(entries, ActivityEntry{
+				Type:    entryType,
+				Summary: summary,
+			})
+		} else {
+			// 无 bracket 前缀的行：可能是 Task Result 的多行内容
+			// 仅当有累计缓冲或包含关键信息时才保留
+			if buf != "" || strings.Contains(trimmed, "Task ID:") ||
+				strings.Contains(trimmed, "Task Result") ||
+				strings.Contains(trimmed, "Duration:") ||
+				strings.Contains(trimmed, "Session ID:") {
+				if buf != "" {
+					buf += "\n"
 				}
+				buf += trimmed
 			}
 		}
 	}
-	return allEntries
+	// flush 剩余缓冲
+	if buf != "" {
+		entries = append(entries, ActivityEntry{
+			Summary: buf,
+		})
+	}
+	return entries
+}
+
+// parseActivityLine 从 "[Type] content" 格式的行中提取 Type 和 content
+func parseActivityLine(line string) (entryType, summary string) {
+	if len(line) < 2 || line[0] != '[' {
+		return "", line
+	}
+	if idx := strings.Index(line, "] "); idx > 0 {
+		entryType = line[1:idx]
+		summary = line[idx+2:]
+	} else if idx := strings.Index(line, "]"); idx > 0 {
+		// "[Type]" 无内容
+		entryType = line[1:idx]
+		summary = ""
+	} else {
+		summary = line
+	}
+	return
 }
 
 // getAgentStatus 调用 get_agent_status MCP 工具，返回 Agent 的最新状态文本摘要
@@ -199,13 +285,13 @@ func (w *Watcher) cancelAgent(agentID string) error {
 }
 
 // continueAgent 调用 send_agent_prompt MCP 工具发送继续任务提示
-func (w *Watcher) continueAgent(agentID string) error {
-	if w.continuePrompt == "" {
+func (w *Watcher) continueAgent(agentID, prompt string) error {
+	if prompt == "" {
 		return fmt.Errorf("continue prompt not set")
 	}
 	_, err := w.callMCPWithTimeout("send_agent_prompt", map[string]interface{}{
 		"agentId": agentID,
-		"prompt":  w.continuePrompt,
+		"prompt":  prompt,
 	}, 120*time.Second)
 	if err != nil {
 		return fmt.Errorf("send_agent_prompt failed: %w", err)
@@ -217,7 +303,7 @@ func (w *Watcher) continueAgent(agentID string) error {
 // restartAgent 尝试恢复卡死的 Agent，保留上下文
 // 只发继续提示，不取消执行，保护用户对话上下文不被损坏
 func (w *Watcher) restartAgent(agentID string) error {
-	if err := w.continueAgent(agentID); err != nil {
+	if err := w.continueAgent(agentID, w.stuckContinuePrompt); err != nil {
 		return fmt.Errorf("continue prompt failed: %w", err)
 	}
 	return nil

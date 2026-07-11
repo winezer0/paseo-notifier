@@ -4,13 +4,9 @@
 
 Paseo Agent status notifier.
 
-Both the desktop (Windows) and mobile (Android) versions of Paseo v0.1.102 have issues with sound notifications — messages cannot be effectively alerted after completion.
+Poll the Paseo daemon's Agent status via MCP API, and send notifications through configured channels when tasks complete, encounter errors, require user interaction, get stuck, recover from stuck, or during long-running heartbeats.
 
-After trying various approaches without success, the lack of notifications means being unaware of task running status, which significantly impacts efficiency.
-
-The solution: poll the Paseo daemon's Agent status via MCP API, and send notifications through configured channels when tasks complete, encounter errors, or require user interaction.
-
-Built on the [notify](https://github.com/nikoksr/notify) library, it supports multiple notification methods. Currently supports DingTalk, Feishu (Lark) Webhook, and Feishu App notifications. See below for registering additional provider types.
+Supports parallel notification delivery across multiple providers. Built-in providers include console (with emoji), DingTalk bot, Feishu Webhook, and Feishu App. The plugin system (based on [notify](https://github.com/nikoksr/notify)) makes it easy to add 30+ services like Slack, Telegram, Discord, email, and more.
 
 ## Quick Install
 
@@ -39,9 +35,10 @@ Daemon MCP API (127.0.0.1:6767)
   Agent Watcher (polls every 5s)
        │
        ├── list_agents                    → detect finished / error / stuck
-       │   └── get_agent_activity         → attach activity summary
+       │   ├── get_agent_activity         → attach activity summary
+       │   └── checkRunningAgents         → running status heartbeat
        ├── list_pending_permissions       → detect new permission requests
-       └── get_agent_activity             → confirm stuck status
+       └── get_agent_activity             → confirm stuck (async)
        │
        ▼
   Notifier.Notify(event)
@@ -59,7 +56,10 @@ Daemon MCP API (127.0.0.1:6767)
 | ✅ Task finished | `attentionReason: null → "finished"` | `list_agents` |
 | ❌ Error occurred | `attentionReason: null → "error"` | `list_agents` |
 | ⚠️ Interaction needed | New item in `list_pending_permissions` | Permission request list |
-| 🔔 Agent stuck | `UpdatedAt` unchanged beyond `stuck_detect_timeout` | `get_agent_activity` confirms |
+| 🔔 Stuck warning | `UpdatedAt` unchanged beyond `stuck_detect_timeout` | Before `get_agent_activity` confirmation |
+| 🔔 Agent stuck confirmed | Last activity also exceeds timeout | `get_agent_activity` confirms |
+| ℹ️ Still active | Agent found active after secondary check | `get_agent_activity` confirms |
+| 🔄 Running status | Agent running beyond `running_status_interval` | `checkRunningAgents` |
 | 🔔 Startup notification | Notifier initialized | First startup |
 | 🔌 Disconnect/reconnect | MCP daemon connection lost/restored | Poll success/failure |
 
@@ -69,14 +69,25 @@ When **finished / error** events fire, `get_agent_activity` is automatically cal
 
 ### Stuck Detection
 
-When a running agent's `UpdatedAt` field hasn't changed for longer than `stuck_detect_timeout` (default 120 seconds), the tool calls `get_agent_activity` for a second opinion. If the latest activity entry's timestamp also exceeds `stuck_detect_timeout`, the agent is confirmed stuck and a notification is sent. The notification includes idle duration and the last activity summary for troubleshooting.
+When a running agent's `UpdatedAt` field hasn't changed for longer than `stuck_detect_timeout` (default 120 seconds):
+
+1. **Stuck warning**: A warning notification "Agent may be stuck (checking)" is sent immediately.
+2. **Secondary check**: `get_agent_activity` is called to fetch the latest activity timeline.
+3. **Verdict**:
+   - Last activity also timed out → **Stuck confirmed** notification with idle duration, reason, and activity summary
+   - Last activity is still within the timeout threshold → **Still active** notification with recent activity entries
 
 After stuck detection, the auto-restart flow can be configured (`stuck_restart_delay` / `stuck_restart_retry`):
 1. Send stuck notification after `stuck_detect_timeout`
-2. After `stuck_restart_delay`, auto-send a `continue` prompt to recover
-3. Give up after `stuck_restart_retry` retries
+2. After `stuck_restart_delay`, check if agent recovered on its own
+3. If still stuck, auto-send a `continue` prompt to recover
+4. Give up after `stuck_restart_retry` retries
 
 > If `UpdatedAt` resumes normal updates during monitoring, the stuck state is automatically reset.
+
+### Running Status Heartbeat
+
+When an agent runs continuously beyond `running_status_interval` (default 5 minutes) without user interaction, a running status heartbeat notification is sent periodically. The notification includes agent info, running duration, and recent activity entries, keeping you informed of long-running agent progress.
 
 ### Notification Types
 
@@ -85,7 +96,10 @@ After stuck detection, the auto-restart flow can be configured (`stuck_restart_d
 | Task completed | Agent task finished normally | All configured providers |
 | Task error | Agent execution error | All configured providers |
 | Permission request | Agent needs user confirmation | All configured providers |
-| Stuck warning | Agent unresponsive for long period | All configured providers |
+| Stuck warning | `UpdatedAt` unchanged beyond `stuck_detect_timeout` | All configured providers |
+| Stuck confirmed | Secondary check confirms agent is stuck | All configured providers |
+| Still active | Secondary check finds agent working | All configured providers |
+| Running status | Agent running beyond `running_status_interval` | All configured providers |
 | Startup notification | Notifier initialized | All configured providers |
 | Disconnect notification | MCP daemon connection lost | All configured providers |
 | Reconnect notification | MCP daemon connection restored | All configured providers |
@@ -94,6 +108,8 @@ After stuck detection, the auto-restart flow can be configured (`stuck_restart_d
 
 - **finished / error**: Compares `(attentionReason, attentionTimestamp)`, skips if identical
 - **Permission requests**: Tracks notified permission IDs
+- **Stuck events**: Stuck warning, still active, and stuck confirmed each fire only once; auto-resets when `UpdatedAt` resumes
+- **Running status**: At most one notification per `running_status_interval`
 - **Disconnect/reconnect**: Clears state snapshot on reconnect to avoid backlog of duplicates
 - **Archived agents**: Agents with `archivedAt` set are skipped
 
@@ -132,6 +148,9 @@ monitor:
   # Restart delay after stuck (Go time.Duration), 0s/false/empty = disabled, default 0s
   stuck_restart_delay: 0s
   stuck_restart_retry: 5
+  # Running status heartbeat interval (Go time.Duration), 0s/false/empty = disabled, default 5m
+  # Periodically sends running status for agents running beyond this interval
+  running_status_interval: 5m
 
 # Common settings (log, language)
 common:

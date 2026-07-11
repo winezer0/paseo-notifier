@@ -64,7 +64,8 @@ type messages struct {
 	FieldStuckDuration    string
 	FieldStuckReason      string
 	FieldStuckCheckNotice string
-	ContinuePrompt        string // 继续任务的提示文本
+	ContinuePrompt        string // 任务完成后自动继续的提示文本（简短）
+	StuckContinuePrompt   string // 卡死重启时发送给 Agent 的继续提示文本（含上下文说明）
 
 	// 运行中状态
 	SubjectRunningStatus  string
@@ -76,6 +77,19 @@ type messages struct {
 	// 断连/重连通知
 	DisconnectContent string
 	ReconnectContent  string
+
+	// 子任务进度
+	SubjectSubagentProgress string
+	SectionSubagents        string
+	FieldSubagentID         string
+	FieldSubagentDesc       string
+	FieldSubagentStatus     string
+	FieldSubagentDuration   string
+	SubagentStatusRunning   string
+	SubagentStatusCompleted string
+
+	// 自动继续
+	SubjectAutoContinue string
 
 	// kind 标签
 	KindTool     string
@@ -101,7 +115,19 @@ var msgZh = messages{
 	SubjectRunningStatus: ":information_source: Agent 正在运行",
 	FieldRunningDuration: "运行时长",
 	FieldStuckReason:      "卡死原因",
-	ContinuePrompt:        "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
+	ContinuePrompt:        "继续任务",
+	StuckContinuePrompt:   "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
+
+	SubjectSubagentProgress: ":arrows_counterclockwise: OpenCode 子任务进度更新",
+	SectionSubagents:        "--- OpenCode 子任务 ---",
+	FieldSubagentID:         "任务ID",
+	FieldSubagentDesc:       "描述",
+	FieldSubagentStatus:     "状态",
+	FieldSubagentDuration:   "耗时",
+	SubagentStatusRunning:   "运行中",
+	SubagentStatusCompleted: "已完成",
+
+	SubjectAutoContinue: ":arrows_counterclockwise: 自动继续已触发",
 
 	SectionAgent:         "--- Agent 信息 ---",
 	SectionTime:          "--- 时间信息 ---",
@@ -159,8 +185,20 @@ var msgEn = messages{
 	FieldStuckCheckNotice: "UpdatedAt unchanged for %s, checking agent activity...",
 	SubjectRunningStatus: ":information_source: Agent is running",
 	FieldRunningDuration: "Running duration",
-	ContinuePrompt:        "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
+	ContinuePrompt:        "Continue task",
+	StuckContinuePrompt:   "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
 	FieldStuckReason:      "Stuck reason",
+
+	SubjectSubagentProgress: ":arrows_counterclockwise: OpenCode subagent progress update",
+	SectionSubagents:        "--- OpenCode Subagents ---",
+	FieldSubagentID:         "Task ID",
+	FieldSubagentDesc:       "Description",
+	FieldSubagentStatus:     "Status",
+	FieldSubagentDuration:   "Duration",
+	SubagentStatusRunning:   "running",
+	SubagentStatusCompleted: "completed",
+
+	SubjectAutoContinue: ":arrows_counterclockwise: Auto continue triggered",
 
 	SectionAgent:    "--- Agent Info ---",
 	SectionTime:     "--- Time Info ---",

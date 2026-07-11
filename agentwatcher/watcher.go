@@ -13,29 +13,35 @@ import (
 
 // Watcher 通过 MCP API 轮询监控 Agent 状态
 type Watcher struct {
-	daemonURL             string            // MCP 守护进程地址（如 http://127.0.0.1:6767/mcp/agents）
-	interval              time.Duration     // 轮询间隔，默认 5s
-	stuckDetectTimeout    time.Duration     // 卡死检测超时，UpdatedAt 超过此时长无变化则触发检查，0 禁用
-	stuckRestartDelay     time.Duration     // 卡死确认后自动重启延迟，0 禁用自动重启
-	maxRetries            int               // 自动重启最大重试次数
-	continuePrompt        string            // 发送给卡死 Agent 的继续任务提示文本
-	runningStatusInterval time.Duration     // 运行中状态心跳通知间隔，0 禁用
-	notifier              Notifier          // 通知器接口，发送 Agent 事件通知
-	sysNotifyFn           SystemNotifyFunc  // 系统事件通知回调（断连/重连）
-	connState             ConnState         // 当前 MCP 守护进程连接状态，用于断连/重连检测
+	daemonURL             string                 // MCP 守护进程地址（如 http://127.0.0.1:6767/mcp/agents）
+	interval              time.Duration          // 轮询间隔，默认 5s
+	stuckDetectTimeout    time.Duration          // 卡死检测超时，UpdatedAt 超过此时长无变化则触发检查，0 禁用
+	stuckRestartDelay     time.Duration          // 卡死确认后自动重启延迟，0 禁用自动重启
+	maxRetries            int                    // 自动重启最大重试次数
+	continuePrompt        string                 // 任务完成后自动继续的提示文本
+	stuckContinuePrompt   string                 // 卡死重启时发送给 Agent 的继续提示文本
+	autoContinue          bool                   // 任务完成后自动继续
+	runningStatusInterval time.Duration          // 运行中状态心跳通知间隔，0 禁用
+	notifier              Notifier               // 通知器接口，发送 Agent 事件通知
+	sysNotifyFn           SystemNotifyFunc       // 系统事件通知回调（断连/重连）
+	connState             ConnState              // 当前 MCP 守护进程连接状态，用于断连/重连检测
 	prevAgents            map[string]*AgentState // Agent 状态快照（key=Agent ID），用于检测变化和卡死
-	prevPermIDs           map[string]bool   // 已通知的权限请求 ID 集合，用于权限去重
-	httpClient            *http.Client      // HTTP 客户端，默认超时 10s
-	done                  chan struct{}     // 关闭信号，通知轮询循环退出
-	reqID                 atomic.Int64     // MCP JSON-RPC 请求 ID 自增计数器（线程安全）
-	ctx                   context.Context  // Watcher 生命周期上下文，用于取消 HTTP 请求
-	cancel                context.CancelFunc // 取消函数
-	managedAgents         map[string]bool   // 非空时只处理指定 Agent，用于测试隔离
-	mu                    sync.Mutex        // 保护 prevAgents 并发读写（主循环 + 后台 goroutine）
+	prevPermIDs           map[string]bool        // 已通知的权限请求 ID 集合，用于权限去重
+	httpClient            *http.Client           // HTTP 客户端，默认超时 10s
+	done                  chan struct{}          // 关闭信号，通知轮询循环退出
+	reqID                 atomic.Int64           // MCP JSON-RPC 请求 ID 自增计数器（线程安全）
+	ctx                   context.Context        // Watcher 生命周期上下文，用于取消 HTTP 请求
+	cancel                context.CancelFunc     // 取消函数
+	managedAgents         map[string]bool        // 非空时只处理指定 Agent，用于测试隔离
+	mu                    sync.Mutex             // 保护 prevAgents 并发读写（主循环 + 后台 goroutine）
+	subagentTracker       *SubagentTracker       // 子任务进度追踪器
+	toolOutputWatcher     *ToolOutputWatcher      // tool-output 文件监控器
+	startedAt             time.Time              // 启动时间
 }
 
 // NewWatcher 根据配置创建 Agent 状态监控器
-func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt string) *Watcher {
+// continuePrompt 用于任务完成后自动继续，stuckContinuePrompt 用于卡死重启
+func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stuckContinuePrompt string) *Watcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Watcher{
 		daemonURL:              cfg.DaemonURL,
@@ -44,11 +50,13 @@ func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt stri
 		stuckRestartDelay:      cfg.StuckRestartDuration(),
 		maxRetries:             cfg.StuckRestartRetry,
 		continuePrompt:         continuePrompt,
+		stuckContinuePrompt:    stuckContinuePrompt,
+		autoContinue:           cfg.AutoContinue,
 		runningStatusInterval:  cfg.RunningStatusIntervalDuration(),
-		notifier:               notifier,
-		connState:    ConnConnected,
-		prevAgents:   make(map[string]*AgentState),
-		prevPermIDs:  make(map[string]bool),
+		notifier:              notifier,
+		connState:             ConnConnected,
+		prevAgents:            make(map[string]*AgentState),
+		prevPermIDs:           make(map[string]bool),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -58,9 +66,12 @@ func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt stri
 				DisableCompression:  false,
 			},
 		},
-		done:   make(chan struct{}),
-		ctx:    ctx,
-		cancel: cancel,
+		done:            make(chan struct{}),
+		ctx:             ctx,
+		cancel:          cancel,
+		subagentTracker: NewSubagentTracker(),
+		toolOutputWatcher: NewToolOutputWatcher(),
+		startedAt:       time.Now(),
 	}
 }
 
@@ -175,6 +186,8 @@ func (w *Watcher) pollOnce() {
 	}
 	w.detectStuckAgents(agents)
 	w.checkRunningAgents(agents)
+	w.checkSubagentProgress(agents)
+	w.checkToolOutput()
 	for _, perm := range perms {
 		w.detectNewPermission(perm)
 	}
@@ -193,6 +206,7 @@ func (w *Watcher) handleConnState(disconnected bool) {
 		w.prevAgents = make(map[string]*AgentState)
 		w.prevPermIDs = make(map[string]bool)
 		w.mu.Unlock()
+		w.subagentTracker.Reset()
 		w.sendReconnectedNotify()
 
 	case disconnected && w.connState == ConnDisconnected:
@@ -201,6 +215,104 @@ func (w *Watcher) handleConnState(disconnected bool) {
 	case !disconnected && w.connState == ConnConnected:
 		// 持续连接，不做操作
 	}
+}
+
+// checkSubagentProgress 检查子任务进度。
+// 对所有非归档 agent 获取最近活动记录并检测子任务状态变化。
+// 不限于 running 状态（agent 可能在子任务运行期间结束，但活动记录中仍有启动条目）。
+// 有变化时发送子任务进度通知。
+func (w *Watcher) checkSubagentProgress(agents []AgentStatus) {
+	//logging.Debugf("checkSubagentProgress: checking %d agents", len(agents))
+	for _, agent := range agents {
+		if agent.ArchivedAt != nil {
+			continue
+		}
+		if len(w.managedAgents) > 0 && !w.managedAgents[agent.ID] {
+			continue
+		}
+
+	//logging.Debugf("checkSubagentProgress: agent=%s status=%s title=%s", agent.ShortID, agent.Status, agent.Title)
+		entries := w.getAgentActivity(agent.ID)
+		//logging.Debugf("checkSubagentProgress: got %d activity entries for agent=%s", len(entries), agent.ShortID)
+		if len(entries) == 0 {
+			continue
+		}
+
+		// 仅 running 的 agent 允许新增子任务检测；idle/finished 只追踪已有条目的状态变化和消失
+		// 每个 agent 首次遇到时自动执行基线建立（存入 tracker 不通知），由 DetectChanges 内部处理
+		allowNew := agent.Status == "running"
+		changes := w.subagentTracker.DetectChanges(agent.ID, entries, allowNew)
+		if len(changes) == 0 {
+			continue
+		}
+
+		// 发送子任务进度通知
+		ev := AgentEvent{
+			Type:      EventSubagentProgress,
+			Agent:     agent,
+			Timestamp: time.Now(),
+			Subagents: changes,
+		}
+		if err := w.notifier.Notify(w.ctx, ev); err != nil {
+			logging.Errorf("notify subagent progress failed agentId=%s err=%v", agent.ID, err)
+		} else {
+			logging.Infof("subagent progress notified agentId=%s changes=%d", agent.ShortID, len(changes))
+		}
+	}
+}
+
+// checkToolOutput 扫描 tool-output 目录中的新 Task Result 文件，注入到子任务追踪器
+func (w *Watcher) checkToolOutput() {
+	results := w.toolOutputWatcher.Poll()
+	if len(results) == 0 {
+		return
+	}
+
+	logging.Debugf("tooloutput found %d completed tasks", len(results))
+	for _, r := range results {
+		changes := w.subagentTracker.InjectCompleted(r)
+		if len(changes) == 0 {
+			continue
+		}
+		// 发送完成通知
+		ev := AgentEvent{
+			Type:      EventSubagentProgress,
+			Timestamp: time.Now(),
+			Subagents: changes,
+		}
+		// 查找对应的 agent（如果有）
+		if r.SessionID != "" {
+			if a := w.findAgentBySession(r.SessionID); a != nil {
+				ev.Agent = *a
+			}
+		}
+		if err := w.notifier.Notify(w.ctx, ev); err != nil {
+			logging.Errorf("notify tooloutput completion failed err=%v", err)
+		} else {
+			logging.Infof("tooloutput completion notified taskId=%s duration=%s", r.ID, r.Duration)
+		}
+	}
+}
+
+// findAgentBySession 根据 session ID 查找 agent（遍历当前 agent 列表）
+func (w *Watcher) findAgentBySession(sessionID string) *AgentStatus {
+	agents, err := w.fetchAgents()
+	if err != nil {
+		return nil
+	}
+	for _, a := range agents {
+		if a.Status == "running" || a.Status == "idle" {
+			// 通过 agent status 中的 persistence.sessionId 匹配
+			// 当前 AgentStatus 没有 sessionId 字段，返回第一个 running agent 作为近似
+			if a.Status == "running" {
+				return &a
+			}
+		}
+	}
+	if len(agents) > 0 {
+		return &agents[0]
+	}
+	return nil
 }
 
 func (w *Watcher) sendDisconnectedNotify() {

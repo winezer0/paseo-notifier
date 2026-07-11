@@ -8,9 +8,11 @@ Paseo Agent 状态通知器。
 
 经过多种方法并没有解决，但是无法通知就代表没法了解任务的运行状态，这是很影响效率的.
 
-分析发现通过 MCP API 轮询 Paseo 守护进程中的 Agent 状态，在任务完成、出错或需要用户交互时通过配置的渠道发送通知。
+通过 MCP API 轮询 Paseo 守护进程中的 Agent 状态，在任务完成、出错、需要交互、疑似卡死、卡死确认、活动恢复以及运行中心跳等场景下，通过配置的渠道发送通知。
 
-使用notify库，支持多种通知方式，当前支持 dingtalk feishu lark 格式的通知配置，注册其他类型的通知请看下文.
+同时支持 OpenCode 后台子任务（bg_xxx）的进度追踪：自动检测子任务的启动和完成状态，在运行中心跳通知中汇总子任务进展。
+
+支持多供应商并行通知，内置控制台输出（带 emoji）、钉钉机器人、飞书 Webhook、飞书自应用。基于 notify 库的插件机制可轻松扩展 Slack、Telegram、Discord 等 30+ 通知渠道（详见下文）。
 
 ## 快速安装
 
@@ -38,10 +40,13 @@ paseo-notifier start           # 启动服务
        ▼
   Agent Watcher (每 5s 轮询)
        │
-       ├── list_agents                    → 检测 finished / error / 卡死
-       │   └── get_agent_activity         → 附加活动摘要到通知
+       ├── list_agents                    → 检测 finished / error / stuck
+       │   ├── get_agent_activity         → 活动摘要附加到通知
+       │   ├── checkSubagentProgress      → OpenCode 子任务进度检测（活动记录解析）
+       │   └── checkRunningAgents         → 运行中状态心跳通知
        ├── list_pending_permissions       → 检测新权限请求
-       └── get_agent_activity             → 卡死二次确认
+       ├── get_agent_activity             → 卡死二次确认 (异步)
+       └── checkToolOutput                → OpenCode 子任务完成兜底（文件监控）
        │
        ▼
   Notifier.Notify(event)
@@ -59,24 +64,74 @@ paseo-notifier start           # 启动服务
 | ✅ 任务完成 | `attentionReason: null → "finished"` | `list_agents` |
 | ❌ 运行出错 | `attentionReason: null → "error"` | `list_agents` |
 | ⚠️ 需要交互 | `list_pending_permissions` 出现新项 | 权限请求列表 |
-| 🔔 Agent 卡死 | `UpdatedAt` 超过 `stuck_detect_timeout` 无变化 | `get_agent_activity` 确认 |
+| 🔔 疑似卡死警告 | `UpdatedAt` 超过 `stuck_detect_timeout` 无变化 | `get_agent_activity` 确认前发出警告 |
+| 🔔 Agent 卡死 | `get_agent_activity` 确认最后活动也已超时 | 二次确认后发送 |
+| ℹ️ 活动正常 | 二次确认发现 Agent 仍在活动 | `get_agent_activity` 确认后发送 |
+| 🔄 运行中状态 | Agent 持续运行超过 `running_status_interval` | `checkRunningAgents`（附子任务汇总） |
+| 🔄 OpenCode 子任务进度 | 检测到子任务启动或完成 | `checkSubagentProgress` + `checkToolOutput` |
+| 🔔 自动继续 | `auto_continue: true` 且最后活动含"继续"关键词 | `detectAgentChange` + `continueAgent` |
 | 🔔 启动通知 | 通知器启动时 | 首次初始化 |
 | 🔌 断连/重连 | MCP 守护进程连接断开/恢复 | 轮询请求失败/成功 |
 
 ### 活动摘要
 
-**finished / error** 事件触发时，会自动调用 `get_agent_activity` 获取 Agent 最近的执行活动时间线，将最后 8 条活动记录（工具调用、思考过程等）附加到通知内容中，让你了解 Agent 做了什么，而不只是知道"完成了"。
+**finished / error** 事件触发时，会自动调用 `get_agent_activity` 获取 Agent 最近的执行活动时间线，将最后 1 条活动记录附加到通知内容中，让你了解 Agent 最近做了什么，而不只是知道"完成了"。
+
+### OpenCode 子任务进度追踪
+
+paseo-notifier 可以追踪 OpenCode 通过 `task(run_in_background=true)` 创建的后台子任务（bg_xxx）的进度。
+
+**两种检测方式：**
+
+1. **活动记录解析**（`checkSubagentProgress`）：每轮轮询解析 agent 的活动记录文本，匹配 `[general] desc` 格式的启动条目和 `Task Result` 格式的完成条目
+2. **文件监控**（`checkToolOutput`）：监控 OpenCode 的 `tool-output/` 目录，解析 `background_output` 调用后生成的 Task Result 文件，作为完成检测的兜底机制
+
+**基线建立**：首次遇到 agent 时自动建立基线，将历史条目存入追踪器但不触发通知；后续检测只对新增条目生效，避免历史脏数据。
+
+**状态追踪**：
+```
+轮次1: [general] sleep 30s test  → launch_xxx [运行中]
+轮次N: Task Result + bg_xxx       → bg_xxx [已完成] (40s)
+                                   → launch_xxx 同步标记完成
+```
+
+已完成子任务保留 **10 分钟**，超时自动清理。
+
+**定时心跳汇总**：运行中状态心跳通知中附带当前子任务进度汇总：
+
+```
+运行时长: 5m
+
+--- OpenCode 子任务: 2 running, 3 completed ---
+```
 
 ### 卡死检测
 
-当正在运行的 Agent 的 `UpdatedAt` 字段超过 `stuck_detect_timeout`（默认 120 秒）没有变化时，工具会调用 `get_agent_activity` 进行二次确认。如果最后一条活动记录的时间也超过了 `stuck_timeout` 阈值，则判定 Agent 卡死并发送通知。通知内容包含空闲时长和最后一条活动摘要，方便排查。
+当正在运行的 Agent 的 `UpdatedAt` 字段超过 `stuck_detect_timeout`（默认 120 秒）没有变化时：
+
+1. **疑似卡死警告**：第一时间发送警告通知 "Agent 可能卡死（正在确认）"，告知用户已进入检查流程。
+2. **二次确认**：调用 `get_agent_activity` 获取 Agent 最新的活动记录，判断最后活动时间是否也已超时。
+3. **判定结果**：
+   - 最后活动也已超时 → 发送**确认卡死**通知，附空闲时长、卡死原因和活动记录摘要
+   - 最后活动仍在超时阈值内 → 发送**活动正常**通知，附最近活动记录，说明 Agent 仍在工作中
 
 检测到卡死后，可配置自动重启流程（`stuck_restart_delay` / `stuck_restart_retry`）：
-1. 达到 `stuck_detect_timeout` 后发送卡死通知
-2. 再经过 `stuck_restart_delay` 后自动发送 `continue` 提示尝试恢复
-3. 重试达 `stuck_restart_retry` 次后放弃
+1. 达到 `stuck_detect_timeout` 后发送卡死警告
+2. `stuck_restart_delay` 后再次检查 Agent 是否自行恢复
+3. 仍未恢复则自动发送 `continue` 提示尝试恢复 Agent
+4. 重试达 `stuck_restart_retry` 次后放弃
 
 > 如果 `UpdatedAt` 在监控期间恢复正常更新，卡死状态会自动重置。
+
+### 运行中状态心跳
+
+当 Agent 持续运行超过 `running_status_interval`（默认 5 分钟）且用户无新交互时，会定期发送运行中状态心跳通知。通知内容包括 Agent 基本信息、运行时长和最近活动记录，方便你在 Agent 长时间运行时仍能掌握其工作进度。
+
+### 自动继续（Auto Continue）
+
+当启用 `auto_continue: true` 时，Agent 任务完成后会检查其最后一条活动记录是否包含 `继续` / `continue` 等关键词。如果命中，自动调用 `send_agent_prompt` 发送继续提示，适用于大模型执行完一轮后询问"是否继续"的场景。
+
+仅在 **含关键词** 时触发，不会盲目自动继续，误触发率低。
 
 ### 通知类型
 
@@ -85,7 +140,10 @@ paseo-notifier start           # 启动服务
 | 任务完成 | Agent 任务正常结束 | 所有已配置供应商 |
 | 任务出错 | Agent 执行出错 | 所有已配置供应商 |
 | 权限请求 | Agent 需要用户确认 | 所有已配置供应商 |
-| 卡死警告 | Agent 长时间无响应 | 所有已配置供应商 |
+| 疑似卡死警告 | UpdatedAt 超过 `stuck_detect_timeout` 无变化时首次提醒 | 所有已配置供应商 |
+| 确认卡死 | 二次确认后仍判定卡死 | 所有已配置供应商 |
+| 活动正常 | 二次确认发现 Agent 仍在运行 | 所有已配置供应商 |
+| 运行中状态 | Agent 持续运行超过 `running_status_interval` | 所有已配置供应商 |
 | 启动通知 | 通知器启动时 | 所有已配置供应商 |
 | 断连通知 | MCP 守护进程连接断开 | 所有已配置供应商 |
 | 重连通知 | MCP 守护进程连接恢复 | 所有已配置供应商 |
@@ -94,8 +152,12 @@ paseo-notifier start           # 启动服务
 
 - **finished / error**：对比 `(attentionReason, attentionTimestamp)`，相同则不重复
 - **权限请求**：记录已通知的 permission ID
+- **卡死相关**：卡死警告、活动正常、确认卡死均仅首次发送；`UpdatedAt` 恢复更新后自动重置状态
+- **运行中状态**：每轮 `running_status_interval` 间隔最多发送一次通知，不重复
 - **断连重连**：重连后清除历史状态快照，避免断连期间堆积的重复通知
 - **归档 Agent**：`archivedAt` 已设置的 Agent 跳过
+- **OpenCode 子任务**：基线建立后仅增量检测，已完成条目 10 分钟后自动清理，不重复通知
+- **自动继续**：仅当最后活动记录含"继续"关键词时触发，无次数上限但匹配要求严格
 
 ## 配置
 
@@ -134,6 +196,12 @@ monitor:
   stuck_restart_delay: 0s
   # 自动重启最大重试次数，默认 5
   stuck_restart_retry: 5
+  # 运行中状态心跳通知间隔（Go time.Duration 格式），0s/false/空 = 禁用，默认 5m
+  # 对持续运行超过此间隔且用户无交互的 Agent，定期发送运行状态通知
+  running_status_interval: 5m
+  # 任务完成后自动继续（true/false，默认 false）
+  # 当 Agent 最后一条活动包含"继续"等关键词时，自动发送继续提示
+  auto_continue: false
 
 # 通用配置（日志、语言等）
 common:

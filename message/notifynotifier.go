@@ -2,7 +2,6 @@ package message
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/nikoksr/notify"
 	"github.com/winezer0/paseo-notifier/agentwatcher"
@@ -17,12 +16,6 @@ func (n *NotifyNotifier) Notify(ctx context.Context, event agentwatcher.AgentEve
 	subject, content := Build(event)
 
 	logging.Infof("sending notification event=%s subject=%s", event.Type, subject)
-	fmt.Println()
-	fmt.Println("=== Notification ===")
-	fmt.Println("Subject:", subject)
-	fmt.Println(content)
-	fmt.Println("====================")
-	fmt.Println()
 
 	return notify.Send(ctx, subject, content)
 }

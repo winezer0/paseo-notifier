@@ -47,6 +47,7 @@ func (p *program) Start(s service.Service) error {
 		p.cfg.Monitor,
 		p.notifier,
 		message.BuildContinuePrompt(),
+		message.BuildStuckContinuePrompt(),
 	)
 
 	if _, ok := p.notifier.(*message.NotifyNotifier); ok {

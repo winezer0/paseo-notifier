@@ -57,6 +57,8 @@ const (
 	EventStuckWarning      EventType = "stuck_warning"
 	EventStillActive       EventType = "still_active"
 	EventRunningStatus     EventType = "running_status"
+	EventSubagentProgress EventType = "subagent_progress"
+	EventAutoContinue     EventType = "auto_continue"
 )
 
 // AgentEvent 表示 Agent 状态变更事件
@@ -67,6 +69,33 @@ type AgentEvent struct {
 	Permission       *PermissionRequest
 	ActivityEntries  []ActivityEntry
 	IdleDuration     time.Duration // 卡死相关事件的静止时长（UpdatedAt 无变化时间）
+	Subagents        []SubagentInfo // 子任务/子 agent 列表（仅 subagent_progress 事件）
+}
+
+// SubagentKind 表示子 agent/子任务的来源类型
+type SubagentKind string
+
+const (
+	// SubagentOpenCode OpenCode 内部后台任务（task(run_in_background=true) → bg_xxx）
+	SubagentOpenCode SubagentKind = "opencode"
+	// SubagentPaseo Paseo 子 agent（create_agent(relationship: subagent)）
+	SubagentPaseo SubagentKind = "paseo"
+)
+
+// SubagentInfo 统一表示子 agent 或子任务的信息
+type SubagentInfo struct {
+	Kind        SubagentKind // 来源类型：opencode / paseo
+	ID          string       // bg_xxx 或 agentId
+	ParentID    string       // 父 agent ID
+	Description string       // 任务描述（OpenCode）或 agent 标题（Paseo）
+	Status      string       // running / completed / idle / error
+	Duration    string       // 运行时长
+	SessionID   string       // OpenCode 会话 ID（仅 OpenCode）
+	Title       string       // agent 标题（仅 Paseo）
+	Provider    string       // 供应商（仅 Paseo）
+	Model       string       // 模型（仅 Paseo）
+	CreatedAt   string       // RFC3339 创建时间
+	CompletedAt time.Time    // 完成时间，用于清理过期完成记录
 }
 
 // Notifier 通知器接口

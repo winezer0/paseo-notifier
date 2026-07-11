@@ -42,6 +42,12 @@ func Build(event agentwatcher.AgentEvent) (subject, content string) {
 	case agentwatcher.EventRunningStatus:
 		subject = msg.SubjectRunningStatus
 		content = buildRunningStatusContent(event, msg)
+	case agentwatcher.EventSubagentProgress:
+		subject = msg.SubjectSubagentProgress
+		content = buildSubagentProgressContent(event, msg)
+	case agentwatcher.EventAutoContinue:
+		subject = msg.SubjectAutoContinue
+		content = buildAutoContinueContent(event, msg)
 	}
 	return
 }
@@ -205,29 +211,43 @@ func buildRunningStatusContent(event agentwatcher.AgentEvent, msg messages) stri
 	}
 	b.WriteString(fmt.Sprintf("%s: %s\n", msg.FieldRunningDuration, calcDuration(startTime, nil)))
 
+	// 运行中状态附加子任务进度
+	if len(event.Subagents) > 0 {
+		var running, completed int
+		for _, sa := range event.Subagents {
+			if sa.Status == "running" {
+				running++
+			} else if sa.Status == "completed" {
+				completed++
+			}
+		}
+		b.WriteString(fmt.Sprintf("\n%s: %d running, %d completed\n", msg.SectionSubagents, running, completed))
+	}
+
 	buildActivitySection(&b, event.ActivityEntries, msg)
 
 	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
 	return b.String()
 }
 
-// buildActivitySection 向 Builder 写入活动记录摘要（最多 8 条）
+// buildActivitySection 向 Builder 写入活动记录摘要（最多 1 条）
 func buildActivitySection(b *strings.Builder, entries []agentwatcher.ActivityEntry, msg messages) {
 	if len(entries) == 0 {
 		return
 	}
 	b.WriteString("\n" + msg.SectionActivity + "\n")
-	limit := 8
+	limit := 1
 	start := 0
 	if len(entries) > limit {
 		start = len(entries) - limit
 	}
 	for _, entry := range entries[start:] {
-		ts := formatStrTime(entry.Timestamp)
-		if entry.Summary != "" {
-			b.WriteString(fmt.Sprintf("  • %s [%s] %s\n", ts, entry.Type, entry.Summary))
-		} else {
-			b.WriteString(fmt.Sprintf("  • %s [%s]\n", ts, entry.Type))
+		if entry.Type != "" && entry.Summary != "" {
+			b.WriteString(fmt.Sprintf("  • [%s] %s\n", entry.Type, entry.Summary))
+		} else if entry.Summary != "" {
+			b.WriteString(fmt.Sprintf("  • %s\n", entry.Summary))
+		} else if entry.Type != "" {
+			b.WriteString(fmt.Sprintf("  • [%s]\n", entry.Type))
 		}
 	}
 }
@@ -352,9 +372,76 @@ func lastActivityEntry(entries []agentwatcher.ActivityEntry) *agentwatcher.Activ
 	return latest
 }
 
-// BuildContinuePrompt 返回继续任务的提示文本（根据当前语言设置）
+// buildSubagentProgressContent 构建子任务进度通知内容
+func buildSubagentProgressContent(event agentwatcher.AgentEvent, msg messages) string {
+	a := event.Agent
+	var b strings.Builder
+	b.WriteString(buildAgentInfoSection(a, msg))
+
+	if len(event.Subagents) > 0 {
+		// 区分新增（running）和已完成（completed）两类
+		var running, completed []agentwatcher.SubagentInfo
+		for _, sa := range event.Subagents {
+			switch sa.Status {
+			case "running":
+				running = append(running, sa)
+			case "completed":
+				completed = append(completed, sa)
+			}
+		}
+
+		b.WriteString("\n" + msg.SectionSubagents + "\n")
+
+		if len(running) > 0 {
+			for _, sa := range running {
+				b.WriteString(fmt.Sprintf("  ▶ %s [%s]", sa.ID, msg.SubagentStatusRunning))
+				if sa.Description != "" {
+					b.WriteString(fmt.Sprintf(" - %s", sa.Description))
+				}
+				b.WriteString("\n")
+			}
+		}
+
+		if len(completed) > 0 {
+			for _, sa := range completed {
+				b.WriteString(fmt.Sprintf("  ✓ %s [%s]", sa.ID, msg.SubagentStatusCompleted))
+				if sa.Description != "" {
+					b.WriteString(fmt.Sprintf(" - %s", sa.Description))
+				}
+				if sa.Duration != "" {
+					b.WriteString(fmt.Sprintf(" (%s)", sa.Duration))
+				}
+				b.WriteString("\n")
+			}
+		}
+
+		// 附加汇总行
+		total := len(running) + len(completed)
+		b.WriteString(fmt.Sprintf("  (%d total, %d running, %d completed)\n",
+			total, len(running), len(completed)))
+	}
+
+	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
+	return b.String()
+}
+
+// buildAutoContinueContent 构建自动继续通知内容
+func buildAutoContinueContent(event agentwatcher.AgentEvent, msg messages) string {
+	a := event.Agent
+	var b strings.Builder
+	b.WriteString(buildAgentInfoSection(a, msg))
+	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
+	return b.String()
+}
+
+// BuildContinuePrompt 返回任务完成后自动继续的提示文本（简短）
 func BuildContinuePrompt() string {
 	return getMessages(currentLang).ContinuePrompt
+}
+
+// BuildStuckContinuePrompt 返回卡死重启时发送给 Agent 的继续提示文本（含上下文说明）
+func BuildStuckContinuePrompt() string {
+	return getMessages(currentLang).StuckContinuePrompt
 }
 
 // kindToLabel 将权限请求的 kind 字符串转换为本地化标签

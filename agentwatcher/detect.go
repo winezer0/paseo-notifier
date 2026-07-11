@@ -87,6 +87,27 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 		} else {
 			logging.Infof("agent event detected event=%s agentId=%s title=%s entries=%d", eventType, agent.ShortID, agent.Title, len(activityEntries))
 		}
+
+		// 任务完成后自动继续：检查最后一条活动是否包含继续请求
+		if eventType == EventFinished && w.autoContinue && w.continuePrompt != "" {
+			if w.shouldAutoContinue(activityEntries, agent.ID) {
+				logging.Infof("auto continue agentId=%s", agent.ShortID)
+				if err := w.continueAgent(agent.ID, w.continuePrompt); err != nil {
+					logging.Warnf("auto continue failed agentId=%s err=%v", agent.ShortID, err)
+				} else {
+					// 发送自动继续通知
+					acEv := AgentEvent{
+						Type:      EventAutoContinue,
+						Agent:     agent,
+						Timestamp: time.Now(),
+					}
+					if err := w.notifier.Notify(w.ctx, acEv); err != nil {
+						logging.Errorf("notify auto continue failed agentId=%s err=%v", agent.ID, err)
+					}
+				}
+			}
+		}
+
 		// event 触发后 prev 指针已指向新快照，不再更新旧指针
 		return
 	}
@@ -182,11 +203,13 @@ func (w *Watcher) checkRunningAgents(agents []AgentStatus) {
 		// 发送通知（异步获取活动记录）
 		go func(agent AgentStatus) {
 			entries := w.getAgentActivity(agent.ID)
+			subagents := w.subagentTracker.GetByParent(agent.ID)
 			ev := AgentEvent{
 				Type:            EventRunningStatus,
 				Agent:           agent,
 				Timestamp:       now,
 				ActivityEntries: entries,
+				Subagents:       subagents,
 			}
 			if err := w.notifier.Notify(w.ctx, ev); err != nil {
 				logging.Errorf("notify running status failed agentId=%s err=%v", agent.ID, err)
@@ -339,5 +362,55 @@ func (w *Watcher) runStuckCheck(agent AgentStatus, stuckSince time.Time) {
 }
 
 // ──────────────────────────────────────────────────────────
-// 过滤
+// 自动继续检测
 // ──────────────────────────────────────────────────────────
+
+// continueKeywords 自动继续触发的关键词列表（取末尾 15 字符匹配）
+var continueKeywordsZh = []string{"继续"}
+var continueKeywordsEn = []string{"continue"}
+
+func (w *Watcher) shouldAutoContinue(entries []ActivityEntry, agentID string) bool {
+	if len(entries) == 0 {
+		return false
+	}
+
+	last := entries[len(entries)-1]
+	summary := last.Summary
+	if summary == "" {
+		return false
+	}
+
+	// 检测中文关键词
+	if hit, kw, tail := matchKeywordTail(summary, 5, continueKeywordsZh); hit {
+		logging.Debugf("auto continue triggered by zh keyword=%q tailZh=%q agentId=%s", kw, tail, agentID)
+		return true
+	}
+
+	// 检测英文关键词
+	if hit, kw, tail := matchKeywordTail(summary, 20, continueKeywordsEn); hit {
+		logging.Debugf("auto continue triggered by en keyword=%q tailEn=%q agentId=%s", kw, tail, agentID)
+		return true
+	}
+
+	return false
+}
+
+// matchKeywordTail 给定原文、尾部截取长度、关键词列表，检测是否命中
+func matchKeywordTail(s string, tailLen int, keywords []string) (hit bool, hitKw string, tail string) {
+	tail = getTailRune(s, tailLen)
+	for _, kw := range keywords {
+		if strings.Contains(tail, kw) {
+			return true, kw, tail
+		}
+	}
+	return false, "", tail
+}
+
+// getTailRune 获取字符串尾部N个rune字符
+func getTailRune(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[len(r)-n:])
+}

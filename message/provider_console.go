@@ -20,6 +20,8 @@ var emojiReplacer = strings.NewReplacer(
 	":x:", "❌",
 	":warning:", "⚠️",
 	":bell:", "🔔",
+	":information_source:", "ℹ️",
+	":arrows_counterclockwise:", "🔄",
 )
 
 // replaceEmoji 将文本中的 Slack 风格 emoji 代码替换为 Unicode 字符
