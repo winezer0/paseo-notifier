@@ -522,3 +522,18 @@ func (w *Watcher) lookupAgent(agentID string) AgentStatus {
 	}
 	return AgentStatus{ID: agentID, ShortID: agentID}
 }
+
+// fetchAgentStatus 重新获取指定 Agent 的最新状态
+// 返回 nil 表示 Agent 未找到或 fetch 失败
+func (w *Watcher) fetchAgentStatus(agentID string) *AgentStatus {
+	agents, err := w.fetchAgents()
+	if err != nil {
+		return nil
+	}
+	for i := range agents {
+		if agents[i].ID == agentID {
+			return &agents[i]
+		}
+	}
+	return nil
+}
