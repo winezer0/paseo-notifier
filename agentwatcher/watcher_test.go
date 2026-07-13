@@ -14,7 +14,7 @@ func testWatcher(notifier *mockNotifier) *Watcher {
 		Interval:           "1s",
 		StuckDetectTimeout: "120s",
 		StuckRestartRetry:  5,
-	}, notifier, "继续任务", "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。")
+	}, notifier, "继续任务", "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。", "子任务已完成，请继续主任务。")
 }
 
 // mockNotifier 模拟通知器，记录接收的事件

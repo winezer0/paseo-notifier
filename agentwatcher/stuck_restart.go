@@ -112,6 +112,7 @@ func (w *Watcher) sendStuckWarning(agent AgentStatus, now time.Time, idleDuratio
 }
 
 // judgeStuckActivity 根据活动记录判断 Agent 是否仍在活跃
+// lastActivityTime 为 nil 时（活动时间戳无法解析），保守视为仍在活跃，避免误判卡死
 func (w *Watcher) judgeStuckActivity(agent AgentStatus, lastActivityTime *time.Time, now time.Time) bool {
 	var stillActive bool
 	w.muRun(func() {
@@ -119,7 +120,10 @@ func (w *Watcher) judgeStuckActivity(agent AgentStatus, lastActivityTime *time.T
 		if prev == nil || !prev.StuckChecking {
 			return
 		}
-		if lastActivityTime != nil && now.Sub(*lastActivityTime) < w.stuckDetectTimeout {
+		if lastActivityTime == nil {
+			// 无法获取活动时间戳，保守视为仍在活跃，不误判卡死
+			stillActive = true
+		} else if now.Sub(*lastActivityTime) < w.stuckDetectTimeout {
 			stillActive = true
 		} else {
 			prev.StuckNotified = true

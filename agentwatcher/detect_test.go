@@ -3,6 +3,8 @@ package agentwatcher
 import (
 	"testing"
 	"time"
+
+	"github.com/winezer0/paseo-notifier/config"
 )
 
 // ─────────────── detectAgentChange tests ───────────────
@@ -472,6 +474,92 @@ func TestHasTrailingColon(t *testing.T) {
 				t.Errorf("hasTrailingColon(%q) = %v, want %v", tt.input, got, tt.expect)
 			}
 		})
+	}
+}
+
+// ─────────────── notify_min_duration tests ───────────────
+
+func TestSuppressShortTaskNotification(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher(config.MonitorConfig{
+		DaemonURL:          "http://localhost:9999",
+		Interval:           "1s",
+		StuckDetectTimeout: "120s",
+		NotifyMinDuration:  "30s",
+	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
+
+	// 任务创建仅 10 秒后完成 → 应被抑制
+	agent := AgentStatus{
+		ID:              "agent-short",
+		ShortID:         "agent-short",
+		Title:           "短任务",
+		AttentionReason: nil,
+		CreatedAt:       time.Now().Add(-10 * time.Second).Format(time.RFC3339),
+	}
+	w.detectAgentChange(agent)
+
+	agent.AttentionReason = strPtr("finished")
+	w.detectAgentChange(agent)
+
+	if len(notifier.events) != 0 {
+		t.Fatalf("short task notification should be suppressed, got %d events", len(notifier.events))
+	}
+}
+
+func TestAllowLongTaskNotification(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher(config.MonitorConfig{
+		DaemonURL:          "http://localhost:9999",
+		Interval:           "1s",
+		StuckDetectTimeout: "120s",
+		NotifyMinDuration:  "30s",
+	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
+
+	// 任务创建 60 秒后完成 → 应正常通知
+	agent := AgentStatus{
+		ID:              "agent-long",
+		ShortID:         "agent-long",
+		Title:           "长任务",
+		AttentionReason: nil,
+		CreatedAt:       time.Now().Add(-60 * time.Second).Format(time.RFC3339),
+	}
+	w.detectAgentChange(agent)
+
+	agent.AttentionReason = strPtr("finished")
+	w.detectAgentChange(agent)
+
+	if len(notifier.events) != 1 {
+		t.Fatalf("long task notification should be sent, got %d events", len(notifier.events))
+	}
+	if notifier.events[0].Type != EventFinished {
+		t.Fatalf("expected EventFinished, got %s", notifier.events[0].Type)
+	}
+}
+
+func TestSuppressDisabledWhenZero(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := NewWatcher(config.MonitorConfig{
+		DaemonURL:          "http://localhost:9999",
+		Interval:           "1s",
+		StuckDetectTimeout: "120s",
+		NotifyMinDuration:  "0s",
+	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
+
+	// 任务创建 1 秒后完成 → notify_min_duration=0 不抑制
+	agent := AgentStatus{
+		ID:              "agent-zero",
+		ShortID:         "agent-zero",
+		Title:           "极短任务",
+		AttentionReason: nil,
+		CreatedAt:       time.Now().Add(-1 * time.Second).Format(time.RFC3339),
+	}
+	w.detectAgentChange(agent)
+
+	agent.AttentionReason = strPtr("finished")
+	w.detectAgentChange(agent)
+
+	if len(notifier.events) != 1 {
+		t.Fatalf("notify_min_duration=0 should not suppress, got %d events", len(notifier.events))
 	}
 }
 

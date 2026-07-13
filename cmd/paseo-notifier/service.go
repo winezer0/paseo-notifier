@@ -48,7 +48,9 @@ func (p *program) Start(s service.Service) error {
 		p.notifier,
 		message.BuildContinuePrompt(),
 		message.BuildStuckContinuePrompt(),
+		message.BuildSubagentDoneContinuePrompt(),
 	)
+	p.watcher.SetEvents(p.cfg.Monitor.Events)
 
 	if _, ok := p.notifier.(*message.NotifyNotifier); ok {
 		p.watcher.SetSystemNotifier(func(disconnected bool, daemonURL string) {
@@ -65,7 +67,7 @@ func (p *program) Start(s service.Service) error {
 		})
 	}
 
-	message.SendStartupNotification(p.notifier)
+	message.SendStartupNotification(p.notifier, p.cfg.Monitor.Events)
 
 	p.watcher.Start()
 

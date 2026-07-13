@@ -13,18 +13,20 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
-	DaemonURL               string `yaml:"daemon_url"`
-	Interval                string `yaml:"interval"`
-	StuckDetectTimeout      string `yaml:"stuck_detect_timeout"`
-	StuckRestartDelay       string `yaml:"stuck_restart_delay"`
-	StuckRestartRetry       int    `yaml:"stuck_restart_retry"`
-	RunningStatusInterval   string `yaml:"running_status_interval"`
-	SubagentRunningInterval string `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
-	AutoContinue            bool   `yaml:"auto_continue"`
+	DaemonURL               string          `yaml:"daemon_url"`
+	Interval                string          `yaml:"interval"`
+	StuckDetectTimeout      string          `yaml:"stuck_detect_timeout"`
+	StuckRestartDelay       string          `yaml:"stuck_restart_delay"`
+	StuckRestartRetry       int             `yaml:"stuck_restart_retry"`
+	RunningStatusInterval   string          `yaml:"running_status_interval"`
+	SubagentRunningInterval string          `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
+	AutoContinue            bool            `yaml:"auto_continue"`
+	NotifyMinDuration       string          `yaml:"notify_min_duration"` // 最短任务通知时长，短于此时长完成的任务不发送通知
+	Events                  map[string]bool `yaml:"events,omitempty"`    // 事件开关映射，未列出的事件默认启用
 }
 
 // ProviderItem 单个通知供应商配置项
@@ -98,6 +100,16 @@ func (m *MonitorConfig) SubagentRunningIntervalDuration() time.Duration {
 	return 3 * time.Minute
 }
 
+// NotifyMinDurationDuration 解析最短任务通知时长，短于此时长完成的任务不发送通知
+// 0 表示不抑制，默认 30s
+func (m *MonitorConfig) NotifyMinDurationDuration() time.Duration {
+	if m.NotifyMinDuration == "" {
+		return 30 * time.Second
+	}
+	d := parseDuration(m.NotifyMinDuration, "notify_min_duration")
+	return d
+}
+
 // parseDuration 解析时间字符串，"false"/空/0 等均返回 0（禁用）
 func parseDuration(raw, field string) time.Duration {
 	if raw == "" || raw == "false" {
@@ -135,6 +147,7 @@ func DefaultConfig() *Config {
 			RunningStatusInterval:   "5m",
 			SubagentRunningInterval: "3m",
 			AutoContinue:            false,
+			NotifyMinDuration:       "30s",
 		},
 		Notifier: NotifierConfig{
 			Providers: nil,

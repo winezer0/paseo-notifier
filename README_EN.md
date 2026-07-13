@@ -6,6 +6,8 @@ Paseo Agent status notifier.
 
 Poll the Paseo daemon's Agent status via MCP API, and send notifications through configured channels when tasks complete, encounter errors, require user interaction, get stuck, recover from stuck, or during long-running heartbeats.
 
+Also tracks subagent progress in real-time via WebSocket connection to the Paseo daemon, notifying on subagent spawn, running status, and completion — with auto-continue support.
+
 Supports parallel notification delivery across multiple providers. Built-in providers include console (with emoji), DingTalk bot, Feishu Webhook, and Feishu App. The plugin system (based on [notify](https://github.com/nikoksr/notify)) makes it easy to add 30+ services like Slack, Telegram, Discord, email, and more.
 
 ## Quick Install

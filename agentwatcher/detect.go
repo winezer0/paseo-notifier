@@ -59,6 +59,10 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 				eventType = EventFinished
 			case "error":
 				eventType = EventError
+			default:
+				// 其他 AttentionReason（如 "cancelled"）统一按 finished 处理
+				logging.Warnf("unknown attentionReason=%q agentId=%s, treating as finished", *agent.AttentionReason, agent.ShortID)
+				eventType = EventFinished
 			}
 		}
 	}
@@ -86,6 +90,17 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			LastUpdatedAt:      agent.UpdatedAt,
 		}
 		w.mu.Unlock()
+
+		// 短任务抑制：完成时长短于阈值的 finished 任务不通知（用户通常已看到结果）
+		if eventType == EventFinished && w.notifyMinDuration > 0 {
+			if created, err := time.Parse(time.RFC3339, agent.CreatedAt); err == nil {
+				if time.Since(created) < w.notifyMinDuration {
+					logging.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s duration=%s",
+						agent.ShortID, time.Since(created))
+					return
+				}
+			}
+		}
 
 		// 获取活动摘要，附加到通知中
 		activityEntries := w.getAgentActivity(agent.ID)
@@ -241,6 +256,19 @@ func (w *Watcher) runStuckCheck(agent AgentStatus, stuckSince time.Time) {
 
 	now := time.Now()
 	idleDuration := now.Sub(stuckSince)
+
+	// ── Step 0：重新获取 Agent 最新状态，确认仍 running ──
+	// 避免 Agent 已在超时等待期间完成但仍收到误报警告
+	latest := w.fetchAgentStatus(agent.ID)
+	if latest != nil {
+		agent = *latest
+		if agent.ArchivedAt != nil || agent.Status != "running" ||
+			(agent.AttentionReason != nil && (*agent.AttentionReason == "finished" || *agent.AttentionReason == "error")) {
+			logging.Infof("agent no longer running, aborting stuck check agentId=%s status=%s reason=%v",
+				agent.ShortID, agent.Status, agent.AttentionReason)
+			return
+		}
+	}
 
 	// ── Step 1：发送疑似卡死警告（仅一次） ──
 	w.sendStuckWarning(agent, now, idleDuration)
