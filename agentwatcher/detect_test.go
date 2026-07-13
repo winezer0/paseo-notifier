@@ -488,13 +488,14 @@ func TestSuppressShortTaskNotification(t *testing.T) {
 		NotifyMinDuration:  "30s",
 	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
 
-	// 任务创建仅 10 秒后完成 → 应被抑制
+	// UpdatedAt 距现在仅 10 秒时完成 → 应被抑制
+	updatedAt := time.Now().Add(-10 * time.Second).Format(time.RFC3339)
 	agent := AgentStatus{
 		ID:              "agent-short",
 		ShortID:         "agent-short",
 		Title:           "短任务",
 		AttentionReason: nil,
-		CreatedAt:       time.Now().Add(-10 * time.Second).Format(time.RFC3339),
+		UpdatedAt:       updatedAt,
 	}
 	w.detectAgentChange(agent)
 
@@ -515,13 +516,14 @@ func TestAllowLongTaskNotification(t *testing.T) {
 		NotifyMinDuration:  "30s",
 	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
 
-	// 任务创建 60 秒后完成 → 应正常通知
+	// UpdatedAt 距现在 60 秒时完成 → 应正常通知
+	updatedAt := time.Now().Add(-60 * time.Second).Format(time.RFC3339)
 	agent := AgentStatus{
 		ID:              "agent-long",
 		ShortID:         "agent-long",
 		Title:           "长任务",
 		AttentionReason: nil,
-		CreatedAt:       time.Now().Add(-60 * time.Second).Format(time.RFC3339),
+		UpdatedAt:       updatedAt,
 	}
 	w.detectAgentChange(agent)
 
@@ -545,13 +547,14 @@ func TestSuppressDisabledWhenZero(t *testing.T) {
 		NotifyMinDuration:  "0s",
 	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
 
-	// 任务创建 1 秒后完成 → notify_min_duration=0 不抑制
+	// UpdatedAt 距现在仅 1 秒 → notify_min_duration=0 不抑制
+	updatedAt := time.Now().Add(-1 * time.Second).Format(time.RFC3339)
 	agent := AgentStatus{
 		ID:              "agent-zero",
 		ShortID:         "agent-zero",
 		Title:           "极短任务",
 		AttentionReason: nil,
-		CreatedAt:       time.Now().Add(-1 * time.Second).Format(time.RFC3339),
+		UpdatedAt:       updatedAt,
 	}
 	w.detectAgentChange(agent)
 

@@ -82,6 +82,27 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			return
 		}
 
+		// 短任务抑制：完成时长短于阈值的 finished 任务不通知（用户通常已看到结果）
+		// 使用上次 UpdatedAt 到当前的时间差作为任务耗时（反映用户感知的执行时长）
+		if eventType == EventFinished && w.notifyMinDuration > 0 {
+			if prev := w.getPrev(agent.ID); prev != nil && prev.LastUpdatedAt != "" {
+				if lastUpdate, err := time.Parse(time.RFC3339, prev.LastUpdatedAt); err == nil {
+					if idle := time.Since(lastUpdate); idle < w.notifyMinDuration {
+						logging.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s idle=%s",
+							agent.ShortID, idle)
+						w.mu.Lock()
+						w.prevAgents[agent.ID] = &AgentState{
+							AttentionReason:    agent.AttentionReason,
+							AttentionTimestamp: agent.AttentionTimestamp,
+							LastUpdatedAt:      agent.UpdatedAt,
+						}
+						w.mu.Unlock()
+						return
+					}
+				}
+			}
+		}
+
 		// 在发通知前更新状态快照，解锁后 HTTP/通知不持锁
 		w.mu.Lock()
 		w.prevAgents[agent.ID] = &AgentState{
@@ -90,17 +111,6 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			LastUpdatedAt:      agent.UpdatedAt,
 		}
 		w.mu.Unlock()
-
-		// 短任务抑制：完成时长短于阈值的 finished 任务不通知（用户通常已看到结果）
-		if eventType == EventFinished && w.notifyMinDuration > 0 {
-			if created, err := time.Parse(time.RFC3339, agent.CreatedAt); err == nil {
-				if time.Since(created) < w.notifyMinDuration {
-					logging.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s duration=%s",
-						agent.ShortID, time.Since(created))
-					return
-				}
-			}
-		}
 
 		// 获取活动摘要，附加到通知中
 		activityEntries := w.getAgentActivity(agent.ID)
