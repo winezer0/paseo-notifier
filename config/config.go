@@ -25,6 +25,7 @@ type MonitorConfig struct {
 	RunningStatusInterval   string `yaml:"running_status_interval"`
 	SubagentRunningInterval string `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
 	AutoContinue            bool   `yaml:"auto_continue"`
+	NotifyMinDuration       string `yaml:"notify_min_duration"`        // 短于此时长完成的任务不通知，0=不抑制，默认 30s
 }
 
 // ProviderItem 单个通知供应商配置项
@@ -98,6 +99,16 @@ func (m *MonitorConfig) SubagentRunningIntervalDuration() time.Duration {
 	return 3 * time.Minute
 }
 
+// NotifyMinDurationDuration 解析最短任务通知时长，短于此时长完成的任务不发送通知
+// 0 表示不抑制，默认 30s
+func (m *MonitorConfig) NotifyMinDurationDuration() time.Duration {
+	if m.NotifyMinDuration == "" {
+		return 30 * time.Second
+	}
+	d := parseDuration(m.NotifyMinDuration, "notify_min_duration")
+	return d
+}
+
 // parseDuration 解析时间字符串，"false"/空/0 等均返回 0（禁用）
 func parseDuration(raw, field string) time.Duration {
 	if raw == "" || raw == "false" {
@@ -135,6 +146,7 @@ func DefaultConfig() *Config {
 			RunningStatusInterval:   "5m",
 			SubagentRunningInterval: "3m",
 			AutoContinue:            false,
+			NotifyMinDuration:       "30s",
 		},
 		Notifier: NotifierConfig{
 			Providers: nil,

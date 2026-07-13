@@ -26,6 +26,9 @@ monitor:
   # 任务完成后自动继续（true/false，默认 false）
   # 当 Agent 最后一条活动包含"继续"等关键词时，自动发送继续提示，适用于大模型询问"是否继续"的场景
   auto_continue: false
+  # 最短任务通知时长（Go time.Duration 格式），0s/0m/0h/false/空 = 不抑制，默认 30s
+  # 短于此时长完成的任务不发送通知（用户通常已看到结果，通知无意义）
+  notify_min_duration: 30s
 
 # 通用配置（日志、语言等）
 common:

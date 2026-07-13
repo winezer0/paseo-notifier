@@ -25,6 +25,7 @@ type Watcher struct {
 	stuckContinuePrompt      string
 	subagentDoneContinuePrompt string              // 子任务全部完成后发送给主 agent 的继续提示
 	autoContinue             bool
+	notifyMinDuration        time.Duration         // 短于此时长完成的任务不通知
 	runningStatusInterval    time.Duration
 	subagentRunningInterval  time.Duration          // subagent 持续运行通知间隔
 	notifier                Notifier
@@ -71,6 +72,7 @@ func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stu
 		stuckContinuePrompt:       stuckContinuePrompt,
 		subagentDoneContinuePrompt: subagentDoneDefaultPrompt(),
 		autoContinue:             cfg.AutoContinue,
+		notifyMinDuration:        cfg.NotifyMinDurationDuration(),
 		runningStatusInterval:    cfg.RunningStatusIntervalDuration(),
 		subagentRunningInterval:  cfg.SubagentRunningIntervalDuration(),
 		notifier:                notifier,

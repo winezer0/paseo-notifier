@@ -91,6 +91,17 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 		}
 		w.mu.Unlock()
 
+		// 短任务抑制：完成时长短于阈值的 finished 任务不通知（用户通常已看到结果）
+		if eventType == EventFinished && w.notifyMinDuration > 0 {
+			if created, err := time.Parse(time.RFC3339, agent.CreatedAt); err == nil {
+				if time.Since(created) < w.notifyMinDuration {
+					logging.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s duration=%s",
+						agent.ShortID, time.Since(created))
+					return
+				}
+			}
+		}
+
 		// 获取活动摘要，附加到通知中
 		activityEntries := w.getAgentActivity(agent.ID)
 
