@@ -324,11 +324,11 @@ Server → { type: "agent.provider_subagents.update", payload: {...} }
 
 ## Provider Subagent 协议
 
-PR #2013 引入，用于将 provider 原生子会话（Claude/Codex/OpenCode 的子 agent）投影到 Paseo 交互窗口。paseo-notifier 利用此协议实现"全部子任务完成"通知。
+PR #2013 引入，用于将 provider 原生子会话（Claude/Codex/OpenCode 的子 agent）投影到 Paseo 交互窗口。paseo-notifier 利用此协议实现子任务追踪通知。
 
 ### 能力门控
 
-客户端必须在 Hello 中声明 `"providerSubagents": true` 才能接收相关推送。
+客户端必须在 Hello 中声明 `"provider_subagents": true` 才能接收相关推送。
 
 ### 消息详述
 
@@ -353,11 +353,10 @@ PR #2013 引入，用于将 provider 原生子会话（Claude/Codex/OpenCode 的
   "payload": {
     "subagents": [
       {
+        "id": "ses_xxx",
         "parentAgentId": "agent-abc123",
-        "subagentId": "sub-xyz789",
-        "title": "build auth module",
-        "provider": "codex",
-        "model": "gpt-5.4",
+        "title": "Migrate Go builtins (@Sisyphus-Junior subagent)",
+        "provider": "opencode",
         "status": "running"
       }
     ]
@@ -365,23 +364,47 @@ PR #2013 引入，用于将 provider 原生子会话（Claude/Codex/OpenCode 的
 }
 ```
 
+> ⚠️ 字段名是 `id`，不是 `subagentId`。与 list_agents 的 agent 不同，subagent 使用 `id` 作为唯一标识。
+
 #### `agent.provider_subagents.update`（Push）
 
-当 subagent 状态变化时服务端主动推送。
+当 subagent 状态变化时服务端主动推送。daemon 发送两种 `kind`：
 
+**upsert**（创建/更新 subagent 描述符）：
 ```json
 {
-  "type": "agent.provider_subagents.update",
-  "payload": {
+  "kind": "upsert",
+  "subagent": {
+    "id": "ses_xxx",
     "parentAgentId": "agent-abc123",
-    "subagentId": "sub-xyz789",
-    "title": "build auth module",
-    "provider": "codex",
-    "model": "gpt-5.4",
-    "status": "completed"
+    "title": "Migrate Go builtins (@Sisyphus-Junior subagent)",
+    "provider": "opencode",
+    "status": "running",
+    "createdAt": "2026-07-13T05:30:28.040Z",
+    "updatedAt": "2026-07-13T05:32:24.126Z"
   }
 }
 ```
+
+**timeline**（子任务时间线条目——推理、工具调用等）：
+```json
+{
+  "kind": "timeline",
+  "parentAgentId": "agent-abc123",
+  "subagentId": "ses_xxx",
+  "provider": "opencode",
+  "item": { "type": "reasoning", "text": "I need to check..." },
+  "timestamp": "2026-07-13T05:32:24.126Z",
+  "seq": 1673,
+  "epoch": "8d80c065-35b4-4f83-a371-5ad8f5b1b2f9"
+}
+```
+
+> ⚠️ 实测关键差异：
+> - 消息结构是 `{kind, subagent:{...}}` **嵌套格式**，不是扁平 `{parentAgentId, subagentId, status, ...}`
+> - 子任务 ID 字段名是 `id`，不是 `subagentId`
+> - `kind: "timeline"` 消息可以忽略（仅时间线数据，非状态变更）
+> - 以上差异是导致"收不到通知 / 状态始终为空"的根因
 
 **status 取值**：`running` | `idle` | `completed` | `error`
 
@@ -389,20 +412,24 @@ PR #2013 引入，用于将 provider 原生子会话（Claude/Codex/OpenCode 的
 
 获取 subagent 的完整时间线（消息、推理、工具调用等）。
 
-### 在 paseo-notifier 中的使用
+### 在 paseo-notifier 中的实现
 
 ```
-Daemon WS Push: agent.provider_subagents.update
+Daemon WS Push: agent.provider_subagents.update → session 信封解包
     │
     ▼
 DaemonWSClient (agentwatcher/wsclient.go)
-    │ OnMessage("agent.provider_subagents.update", handler)
+    │ 解包 session.message → OnMessage("agent.provider_subagents.update", handler)
     ▼
-ProviderSubagentTracker (agentwatcher/provider_tracker.go)
-    │ 更新状态；检测 parent 下是否全部 completed/idle/error
-    │ 全部完成 + 未通知 → 触发回调
+ProviderSubagentTracker.HandleSubagentUpdate()
+    │ 解析 kind:"upsert" → 提取 subagent.{id, parentAgentId, status, title}
+    │ kind:"timeline" → 跳过
     ▼
-Watcher → Notifier → 通知渠道
+ProviderSubagentTracker 内存状态
+    │ checkAllDoneLocked() — 检查是否有 status=="running" 的子任务
+    │ 全部非 running + 未通知 → 回调 onAllDone
+    ▼
+Watcher → Notifier.Notify() → 通知渠道
 ```
 
 ---
