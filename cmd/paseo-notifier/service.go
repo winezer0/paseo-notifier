@@ -48,6 +48,7 @@ func (p *program) Start(s service.Service) error {
 		p.notifier,
 		message.BuildContinuePrompt(),
 		message.BuildStuckContinuePrompt(),
+		message.BuildSubagentDoneContinuePrompt(),
 	)
 	p.watcher.SetEvents(p.cfg.Monitor.Events)
 

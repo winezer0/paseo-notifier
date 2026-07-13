@@ -557,6 +557,11 @@ func BuildStuckContinuePrompt() string {
 	return getMessages(currentLang).StuckContinuePrompt
 }
 
+// BuildSubagentDoneContinuePrompt 返回子任务全部完成后发送给主 agent 的继续提示
+func BuildSubagentDoneContinuePrompt() string {
+	return getMessages(currentLang).SubagentDoneContinuePrompt
+}
+
 // kindToLabel 将权限请求的 kind 字符串转换为本地化标签
 func kindToLabel(kind string, msg messages) string {
 	switch kind {

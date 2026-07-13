@@ -486,7 +486,7 @@ func TestSuppressShortTaskNotification(t *testing.T) {
 		Interval:           "1s",
 		StuckDetectTimeout: "120s",
 		NotifyMinDuration:  "30s",
-	}, notifier, "继续任务", "卡死恢复提示")
+	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
 
 	// 任务创建仅 10 秒后完成 → 应被抑制
 	agent := AgentStatus{
@@ -513,7 +513,7 @@ func TestAllowLongTaskNotification(t *testing.T) {
 		Interval:           "1s",
 		StuckDetectTimeout: "120s",
 		NotifyMinDuration:  "30s",
-	}, notifier, "继续任务", "卡死恢复提示")
+	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
 
 	// 任务创建 60 秒后完成 → 应正常通知
 	agent := AgentStatus{
@@ -543,7 +543,7 @@ func TestSuppressDisabledWhenZero(t *testing.T) {
 		Interval:           "1s",
 		StuckDetectTimeout: "120s",
 		NotifyMinDuration:  "0s",
-	}, notifier, "继续任务", "卡死恢复提示")
+	}, notifier, "继续任务", "卡死恢复提示", "子任务已完成，请继续主任务。")
 
 	// 任务创建 1 秒后完成 → notify_min_duration=0 不抑制
 	agent := AgentStatus{

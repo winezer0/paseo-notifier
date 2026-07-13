@@ -46,7 +46,7 @@ type Watcher struct {
 }
 
 // NewWatcher 根据配置创建 Agent 状态监控器
-func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stuckContinuePrompt string) *Watcher {
+func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stuckContinuePrompt, subagentDonePrompt string) *Watcher {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// 兼容旧配置：自动剥离 /mcp/agents 后缀，统一为基础地址
@@ -69,7 +69,7 @@ func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stu
 		maxRetries:                 cfg.StuckRestartRetry,
 		continuePrompt:             continuePrompt,
 		stuckContinuePrompt:        stuckContinuePrompt,
-		subagentDoneContinuePrompt: subagentDoneDefaultPrompt(),
+		subagentDoneContinuePrompt: subagentDonePrompt,
 		autoContinue:               cfg.AutoContinue,
 		notifyMinDuration:          cfg.NotifyMinDurationDuration(),
 		runningStatusInterval:      cfg.RunningStatusIntervalDuration(),

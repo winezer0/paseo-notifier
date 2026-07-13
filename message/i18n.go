@@ -64,8 +64,9 @@ type messages struct {
 	FieldStuckDuration    string
 	FieldStuckReason      string
 	FieldStuckCheckNotice string
-	ContinuePrompt        string // 任务完成后自动继续的提示文本（简短）
-	StuckContinuePrompt   string // 卡死重启时发送给 Agent 的继续提示文本（含上下文说明）
+	ContinuePrompt              string // 任务完成后自动继续的提示文本（简短）
+	StuckContinuePrompt         string // 卡死重启时发送给 Agent 的继续提示文本（含上下文说明）
+	SubagentDoneContinuePrompt  string // 子任务全部完成后发送给主 agent 的继续提示
 
 	// 运行中状态
 	SubjectRunningStatus  string
@@ -122,8 +123,9 @@ var msgZh = messages{
 	SubjectRunningStatus: "ℹ️ Agent 正在运行",
 	FieldRunningDuration: "运行时长",
 	FieldStuckReason:      "卡死原因",
-	ContinuePrompt:        "继续任务",
-	StuckContinuePrompt:   "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
+	ContinuePrompt:             "继续任务",
+	StuckContinuePrompt:        "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
+	SubagentDoneContinuePrompt: "检测到子任务可能都已经完成，请检查子任务状态，并继续完成主任务。",
 
 	SubjectSubagentProgress: "🔄 子任务进度更新",
 	SubjectAllSubagentsDone: "🎉 全部子任务已完成",
@@ -199,8 +201,9 @@ var msgEn = messages{
 	FieldStuckCheckNotice: "UpdatedAt unchanged for %s, checking agent activity...",
 	SubjectRunningStatus: "ℹ️ Agent is running",
 	FieldRunningDuration: "Running duration",
-	ContinuePrompt:        "Continue task",
-	StuckContinuePrompt:   "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
+	ContinuePrompt:             "Continue task",
+	StuckContinuePrompt:        "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
+	SubagentDoneContinuePrompt: "Subagents appear to have completed. Please check their status and continue with the main task.",
 	FieldStuckReason:      "Stuck reason",
 
 	SubjectSubagentProgress: "🔄 Subagent progress update",

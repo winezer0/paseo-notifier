@@ -9,8 +9,3 @@ func normalizeDaemonURL(raw string) string {
 	}
 	return raw
 }
-
-// subagentDoneDefaultPrompt 子任务全部完成后发送给主 agent 的默认继续提示
-func subagentDoneDefaultPrompt() string {
-	return "检测到子任务可能都已经完成，请检查子任务状态，并继续完成主任务。"
-}
