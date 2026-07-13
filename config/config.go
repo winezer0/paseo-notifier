@@ -13,17 +13,18 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.0.9"
+const Version = "0.1.0"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
-	DaemonURL             string `yaml:"daemon_url"`
-	Interval              string `yaml:"interval"`
-	StuckDetectTimeout    string `yaml:"stuck_detect_timeout"`    // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 120s
-	StuckRestartDelay     string `yaml:"stuck_restart_delay"`     // Go time.Duration 格式，0s/0m/0h/false/空 = 禁用，默认 0s
-	StuckRestartRetry     int    `yaml:"stuck_restart_retry"`     // 自动重启最大重试次数，默认 5
-	RunningStatusInterval string `yaml:"running_status_interval"` // 运行中状态心跳通知间隔，0s/false/空 = 禁用，默认 5m
-	AutoContinue          bool   `yaml:"auto_continue"`           // 任务完成后自动继续（匹配"继续"关键词时自动发送继续提示）
+	DaemonURL               string `yaml:"daemon_url"`
+	Interval                string `yaml:"interval"`
+	StuckDetectTimeout      string `yaml:"stuck_detect_timeout"`
+	StuckRestartDelay       string `yaml:"stuck_restart_delay"`
+	StuckRestartRetry       int    `yaml:"stuck_restart_retry"`
+	RunningStatusInterval   string `yaml:"running_status_interval"`
+	SubagentRunningInterval string `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
+	AutoContinue            bool   `yaml:"auto_continue"`
 }
 
 // ProviderItem 单个通知供应商配置项
@@ -88,6 +89,15 @@ func (m *MonitorConfig) RunningStatusIntervalDuration() time.Duration {
 	return 5 * time.Minute
 }
 
+// SubagentRunningIntervalDuration 解析 subagent 持续运行通知间隔，0 表示禁用
+func (m *MonitorConfig) SubagentRunningIntervalDuration() time.Duration {
+	d := parseDuration(m.SubagentRunningInterval, "subagent_running_interval")
+	if d > 0 {
+		return d
+	}
+	return 3 * time.Minute
+}
+
 // parseDuration 解析时间字符串，"false"/空/0 等均返回 0（禁用）
 func parseDuration(raw, field string) time.Duration {
 	if raw == "" || raw == "false" {
@@ -117,13 +127,14 @@ func DefaultLogPath() string {
 func DefaultConfig() *Config {
 	return &Config{
 		Monitor: MonitorConfig{
-			DaemonURL:             "http://127.0.0.1:6767/mcp/agents",
-			Interval:              "5s",
-			StuckDetectTimeout:    "120s",
-			StuckRestartDelay:     "0s",
-			StuckRestartRetry:     5,
-			RunningStatusInterval: "5m",
-			AutoContinue:          false,
+			DaemonURL:               "http://127.0.0.1:6767",
+			Interval:                "5s",
+			StuckDetectTimeout:      "120s",
+			StuckRestartDelay:       "0s",
+			StuckRestartRetry:       5,
+			RunningStatusInterval:   "5m",
+			SubagentRunningInterval: "3m",
+			AutoContinue:            false,
 		},
 		Notifier: NotifierConfig{
 			Providers: nil,

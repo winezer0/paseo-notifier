@@ -7,8 +7,8 @@
 
 # 监控相关配置
 monitor:
-  # MCP 守护进程地址
-  daemon_url: "http://127.0.0.1:6767/mcp/agents"
+  # Paseo 守护进程基础地址（会自动推导 MCP 端点 <地址>/mcp/agents 和 WebSocket 端点 ws://<地址>/ws）
+  daemon_url: "http://127.0.0.1:6767"
   # 轮询间隔（Go time.Duration 格式）
   interval: "5s"
   # 卡死检测超时（Go time.Duration 格式），0s/0m/0h/false/空 = 禁用，默认 120s
@@ -20,6 +20,9 @@ monitor:
   # 运行中状态心跳通知间隔（Go time.Duration 格式），0s/0m/0h/false/空 = 禁用，默认 5m
   # 对持续运行超过此间隔且用户无交互的 Agent，定期发送运行状态通知
   running_status_interval: 5m
+  # subagent 持续运行通知间隔（Go time.Duration 格式），0s/false/空 = 禁用，默认 3m
+  # 当 agent 的 subagent 持续运行超过此间隔时，定期发送运行状态通知
+  subagent_running_interval: 3m
   # 任务完成后自动继续（true/false，默认 false）
   # 当 Agent 最后一条活动包含"继续"等关键词时，自动发送继续提示，适用于大模型询问"是否继续"的场景
   auto_continue: false

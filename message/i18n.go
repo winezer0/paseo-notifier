@@ -79,17 +79,24 @@ type messages struct {
 	ReconnectContent  string
 
 	// 子任务进度
-	SubjectSubagentProgress string
-	SectionSubagents        string
-	FieldSubagentID         string
-	FieldSubagentDesc       string
-	FieldSubagentStatus     string
-	FieldSubagentDuration   string
-	SubagentStatusRunning   string
-	SubagentStatusCompleted string
+	SubjectSubagentProgress  string
+	SubjectAllSubagentsDone  string
+	SubjectSubagentSpawned   string
+	SubjectSubagentRunning   string
+	AllSubagentsDoneHint     string
+	SectionSubagents         string
+	FieldSubagentID          string
+	FieldSubagentDesc        string
+	FieldSubagentStatus      string
+	FieldSubagentDuration    string
+	SubagentStatusRunning    string
+	SubagentStatusCompleted  string
 
 	// 自动继续
-	SubjectAutoContinue string
+	SubjectAutoContinue  string
+	AutoContinueHint     string
+	SubjectStuckContinue string
+	StuckContinueHint    string
 
 	// kind 标签
 	KindTool     string
@@ -99,27 +106,31 @@ type messages struct {
 }
 
 var msgZh = messages{
-	SubjectFinished:     ":white_check_mark: Agent 任务完成",
-	SubjectError:        ":x: Agent 任务失败",
-	SubjectPermission:   ":warning: Agent 需要用户确认",
-	SubjectStuck:        ":warning: Agent 疑似卡死",
-	SubjectStuckWarning: ":warning: Agent 可能卡死（正在确认）",
-	SubjectStillActive:  ":information_source: Agent 活动正常",
-	SubjectStartup:      ":bell: %s 已启动",
+	SubjectFinished:     "✅ Agent 任务完成",
+	SubjectError:        "❌ Agent 任务失败",
+	SubjectPermission:   "⚠️ Agent 需要用户确认",
+	SubjectStuck:        "⚠️ Agent 疑似卡死",
+	SubjectStuckWarning: "⚠️ Agent 可能卡死（正在确认）",
+	SubjectStillActive:  "ℹ️ Agent 活动正常",
+	SubjectStartup:      "🔔 %s 已启动",
 	SubjectDisconnect:   "[已断开] MCP 守护进程连接断开",
 	SubjectReconnect:    "[已重连] MCP 守护进程连接恢复",
 
 	FieldStuckSince:       "卡死时间",
 	FieldStuckDuration:    "卡死时长",
 	FieldStuckCheckNotice: "UpdatedAt 已超过 %s 无变化，正在进行活动检查...",
-	SubjectRunningStatus: ":information_source: Agent 正在运行",
+	SubjectRunningStatus: "ℹ️ Agent 正在运行",
 	FieldRunningDuration: "运行时长",
 	FieldStuckReason:      "卡死原因",
 	ContinuePrompt:        "继续任务",
 	StuckContinuePrompt:   "检测到 Agent 长时间无响应，请检查你的执行状态，从之前的工作继续。如果你不记得之前的任务，请重新询问用户。",
 
-	SubjectSubagentProgress: ":arrows_counterclockwise: OpenCode 子任务进度更新",
-	SectionSubagents:        "--- OpenCode 子任务 ---",
+	SubjectSubagentProgress: "🔄 子任务进度更新",
+	SubjectAllSubagentsDone: "🎉 全部子任务已完成",
+	SubjectSubagentSpawned:  "🚀 Agent 启动了子任务",
+	SubjectSubagentRunning:  "🔄 子任务持续运行中",
+	AllSubagentsDoneHint:    "所有子任务已执行完毕，请返回主 Agent 继续操作。",
+	SectionSubagents:        "--- 子任务 ---",
 	FieldSubagentID:         "任务ID",
 	FieldSubagentDesc:       "描述",
 	FieldSubagentStatus:     "状态",
@@ -127,7 +138,10 @@ var msgZh = messages{
 	SubagentStatusRunning:   "运行中",
 	SubagentStatusCompleted: "已完成",
 
-	SubjectAutoContinue: ":arrows_counterclockwise: 自动继续已触发",
+	SubjectAutoContinue:  "🔄 自动继续已触发",
+	AutoContinueHint:     "Agent 任务完成后检测到继续请求，已自动发送继续提示，Agent 将继续执行。",
+	SubjectStuckContinue: "🔔 卡死恢复尝试",
+	StuckContinueHint:    "Agent 长时间无响应，已自动发送恢复提示尝试唤醒，Agent 将尝试从之前的工作继续。",
 
 	SectionAgent:         "--- Agent 信息 ---",
 	SectionTime:          "--- 时间信息 ---",
@@ -170,27 +184,31 @@ var msgZh = messages{
 }
 
 var msgEn = messages{
-	SubjectFinished:     ":white_check_mark: Agent task completed",
-	SubjectError:        ":x: Agent task failed",
-	SubjectPermission:   ":warning: Agent requires user confirmation",
-	SubjectStuck:        ":warning: Agent may be stuck",
-	SubjectStuckWarning: ":warning: Agent may be stuck (checking)",
-	SubjectStillActive:  ":information_source: Agent is still active",
-	SubjectStartup:      ":bell: %s started",
+	SubjectFinished:     "✅ Agent task completed",
+	SubjectError:        "❌ Agent task failed",
+	SubjectPermission:   "⚠️ Agent requires user confirmation",
+	SubjectStuck:        "⚠️ Agent may be stuck",
+	SubjectStuckWarning: "⚠️ Agent may be stuck (checking)",
+	SubjectStillActive:  "ℹ️ Agent is still active",
+	SubjectStartup:      "🔔 %s started",
 	SubjectDisconnect:   "[DISCONNECTED] MCP daemon disconnected",
 	SubjectReconnect:    "[RECONNECTED] MCP daemon reconnected",
 
 	FieldStuckSince:       "Stuck since",
 	FieldStuckDuration:    "Stuck duration",
 	FieldStuckCheckNotice: "UpdatedAt unchanged for %s, checking agent activity...",
-	SubjectRunningStatus: ":information_source: Agent is running",
+	SubjectRunningStatus: "ℹ️ Agent is running",
 	FieldRunningDuration: "Running duration",
 	ContinuePrompt:        "Continue task",
 	StuckContinuePrompt:   "Agent has been unresponsive for an extended period. Please check your execution status and continue from where you left off. If you don't remember the previous task, please ask the user again.",
 	FieldStuckReason:      "Stuck reason",
 
-	SubjectSubagentProgress: ":arrows_counterclockwise: OpenCode subagent progress update",
-	SectionSubagents:        "--- OpenCode Subagents ---",
+	SubjectSubagentProgress: "🔄 Subagent progress update",
+	SubjectAllSubagentsDone: "🎉 All subagents completed",
+	SubjectSubagentSpawned:  "🚀 Agent spawned subagent",
+	SubjectSubagentRunning:  "🔄 Subagents still running",
+	AllSubagentsDoneHint:    "All subagents have finished. Please return to the main agent to continue.",
+	SectionSubagents:        "--- Subagents ---",
 	FieldSubagentID:         "Task ID",
 	FieldSubagentDesc:       "Description",
 	FieldSubagentStatus:     "Status",
@@ -198,7 +216,10 @@ var msgEn = messages{
 	SubagentStatusRunning:   "running",
 	SubagentStatusCompleted: "completed",
 
-	SubjectAutoContinue: ":arrows_counterclockwise: Auto continue triggered",
+	SubjectAutoContinue:  "🔄 Auto continue triggered",
+	AutoContinueHint:     "Agent finished its task and requested to continue. A continue prompt was automatically sent.",
+	SubjectStuckContinue: "🔔 Stuck recovery attempt",
+	StuckContinueHint:    "Agent has been unresponsive. A recovery prompt was automatically sent to wake it up.",
 
 	SectionAgent:    "--- Agent Info ---",
 	SectionTime:     "--- Time Info ---",

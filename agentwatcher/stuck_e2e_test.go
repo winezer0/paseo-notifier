@@ -21,13 +21,13 @@ import (
 //
 // 环境变量：
 //
-//	PASEO_DAEMON_URL - 守护进程地址（默认 http://127.0.0.1:6767/mcp/agents）
+//	PASEO_DAEMON_URL - 守护进程基础地址（默认 http://127.0.0.1:6767）
 //	PASEO_TEST_CWD  - Agent 工作目录（默认当前目录）
 //	PASEO_TEST_PROVIDER - 供应商/模型（默认 opencode/nemotron-3-ultra-free）
 func TestStuckDetectionE2E(t *testing.T) {
 	daemonURL := os.Getenv("PASEO_DAEMON_URL")
 	if daemonURL == "" {
-		daemonURL = "http://127.0.0.1:6767/mcp/agents"
+		daemonURL = "http://127.0.0.1:6767"
 	}
 
 	testCWD := os.Getenv("PASEO_TEST_CWD")
@@ -153,7 +153,7 @@ func TestStuckDetectionE2E(t *testing.T) {
 func TestMCPConnectivity(t *testing.T) {
 	daemonURL := os.Getenv("PASEO_DAEMON_URL")
 	if daemonURL == "" {
-		daemonURL = "http://127.0.0.1:6767/mcp/agents"
+		daemonURL = "http://127.0.0.1:6767"
 	}
 
 	testCWD := os.Getenv("PASEO_TEST_CWD")

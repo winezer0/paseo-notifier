@@ -341,7 +341,7 @@ func (w *Watcher) callMCPWithTimeout(method string, params interface{}, timeout 
 		defer cancel()
 	}
 
-	httpReq, err := http.NewRequestWithContext(reqCtx, "POST", w.daemonURL, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(reqCtx, "POST", w.mcpURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %w", err)
 	}

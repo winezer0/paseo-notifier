@@ -64,6 +64,20 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 	}
 
 	if eventType != "" {
+		// 已完成但还有子任务在运行 → 父 agent 只是委派了工作，不算真正完成
+		if eventType == EventFinished && w.subagentTracker != nil && w.subagentTracker.HasRunningSubagents(agent.ID) {
+			logging.Infof("agent finished but has running subagents, suppressing notification agentId=%s", agent.ShortID)
+			// 仍更新状态快照，否则下次轮询会重复检测
+			w.mu.Lock()
+			w.prevAgents[agent.ID] = &AgentState{
+				AttentionReason:    agent.AttentionReason,
+				AttentionTimestamp: agent.AttentionTimestamp,
+				LastUpdatedAt:      agent.UpdatedAt,
+			}
+			w.mu.Unlock()
+			return
+		}
+
 		// 在发通知前更新状态快照，解锁后 HTTP/通知不持锁
 		w.mu.Lock()
 		w.prevAgents[agent.ID] = &AgentState{
@@ -153,105 +167,6 @@ func (w *Watcher) detectStuckAgents(agents []AgentStatus) {
 		}
 		w.mu.Unlock()
 	}
-}
-
-// ──────────────────────────────────────────────────────────
-// 运行中状态心跳通知
-// ──────────────────────────────────────────────────────────
-
-// checkRunningAgents 检查运行中的 Agent，当用户无交互超过间隔时发送运行中状态心跳通知
-func (w *Watcher) checkRunningAgents(agents []AgentStatus) {
-	if w.runningStatusInterval == 0 {
-		return
-	}
-	now := time.Now()
-	for _, agent := range agents {
-		if w.shouldSkipRunningCheck(agent) {
-			continue
-		}
-		prev, exists := w.prevAgents[agent.ID]
-		if !exists {
-			continue
-		}
-
-		// 计算用户无交互时长：以 LastUserMessageAt 为准，为空则回退到 CreatedAt
-		lastUserTime := agent.LastUserMessageAt
-		if lastUserTime == "" {
-			lastUserTime = agent.CreatedAt
-		}
-		if lastUserTime == "" {
-			continue
-		}
-		lastUserTimeParsed, err := time.Parse(time.RFC3339, lastUserTime)
-		if err != nil {
-			continue
-		}
-		sinceLastUser := now.Sub(lastUserTimeParsed)
-		if sinceLastUser < w.runningStatusInterval {
-			continue
-		}
-
-		// 检查上次通知间隔
-		w.mu.Lock()
-		if prev.LastRunningNotify != nil && now.Sub(*prev.LastRunningNotify) < w.runningStatusInterval {
-			w.mu.Unlock()
-			continue
-		}
-		prev.LastRunningNotify = &now
-		w.mu.Unlock()
-
-		// 发送通知（异步获取活动记录）
-		go func(agent AgentStatus) {
-			entries := w.getAgentActivity(agent.ID)
-			subagents := w.subagentTracker.GetByParent(agent.ID)
-			ev := AgentEvent{
-				Type:            EventRunningStatus,
-				Agent:           agent,
-				Timestamp:       now,
-				ActivityEntries: entries,
-				Subagents:       subagents,
-			}
-			if err := w.notifier.Notify(w.ctx, ev); err != nil {
-				logging.Errorf("notify running status failed agentId=%s err=%v", agent.ID, err)
-			} else {
-				logging.Infof("running status notified agentId=%s title=%s idle=%s", agent.ShortID, agent.Title, sinceLastUser)
-			}
-		}(agent)
-	}
-}
-
-// shouldSkipRunningCheck 判断 Agent 是否应跳过运行中状态检测
-func (w *Watcher) shouldSkipRunningCheck(agent AgentStatus) bool {
-	switch {
-	case agent.ArchivedAt != nil:
-		return true
-	case agent.Status != "running":
-		return true
-	case agent.AttentionReason != nil && (*agent.AttentionReason == "finished" || *agent.AttentionReason == "error"):
-		return true
-	case len(w.managedAgents) > 0 && !w.managedAgents[agent.ID]:
-		return true
-	}
-	return false
-}
-
-// shouldSkipStuckCheck 判断 Agent 是否应跳过卡死检测
-func (w *Watcher) shouldSkipStuckCheck(agent AgentStatus) bool {
-	switch {
-	//已归档的 Agent 不再活动，不需要监控
-	case agent.ArchivedAt != nil:
-		return true
-	//	Agent 不在运行中（状态为 idle 等）
-	case agent.Status != "running": // idle 为等待用户输入，不检测
-		return true
-	//	已经结束的任务，UpdatedAt 自然不会再更新
-	case agent.AttentionReason != nil && (*agent.AttentionReason == "finished" || *agent.AttentionReason == "error"):
-		return true
-	//	w.managedAgents 非空且当前 Agent 不在白名单中
-	case len(w.managedAgents) > 0 && !w.managedAgents[agent.ID]:
-		return true
-	}
-	return false
 }
 
 // ──────────────────────────────────────────────────────────

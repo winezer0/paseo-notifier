@@ -44,6 +44,7 @@ func (w *Watcher) checkRecoveryBeforeRestart(agent AgentStatus) bool {
 // tryRestartAgent 执行一次 Agent 重启尝试，包含重试计数和上限判断
 func (w *Watcher) tryRestartAgent(agent AgentStatus) bool {
 	var exhausted bool
+	var didSend bool
 	w.muRun(func() {
 		prev := w.prevAgents[agent.ID]
 		if prev == nil {
@@ -62,9 +63,23 @@ func (w *Watcher) tryRestartAgent(agent AgentStatus) bool {
 			prev.RetryCount, w.maxRetries, agent.ShortID, agent.Title)
 		if err := w.restartAgent(agent.ID); err != nil {
 			logging.Errorf("restart retry failed agentId=%s err=%v", agent.ID, err)
+		} else {
+			didSend = true
 		}
 		resetStuckState(prev)
 	})
+	if didSend {
+		ev := AgentEvent{
+			Type:      EventStuckContinue,
+			Agent:     agent,
+			Timestamp: time.Now(),
+		}
+		if err := w.notifier.Notify(w.ctx, ev); err != nil {
+			logging.Errorf("notify stuck continue failed agentId=%s err=%v", agent.ID, err)
+		} else {
+			logging.Infof("stuck continue notified agentId=%s", agent.ShortID)
+		}
+	}
 	return exhausted
 }
 

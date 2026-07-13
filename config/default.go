@@ -9,8 +9,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// WriteDefaultConfig 将内嵌的默认配置 YAML 写入指定路径
-// 如果 cfgPath 为空，则使用程序目录下的默认路径
+// WriteDefaultConfig 将默认配置写入指定路径。
+// 若目标文件不存在 → 写入内嵌模板（含完整注释）。
+// 若目标文件已存在 → 读取已有配置，与新默认值合并后写回，保留用户自定义值。
 func WriteDefaultConfig(cfgPath string) error {
 	if cfgPath == "" {
 		cfgPath = AppConfigPath()
@@ -24,16 +25,40 @@ func WriteDefaultConfig(cfgPath string) error {
 		return fmt.Errorf("create config directory %s: %w", dir, err)
 	}
 
+	// 文件已存在 → 合并模式
+	if _, err := os.Stat(cfgPath); err == nil {
+		return mergeAndWrite(cfgPath)
+	}
+
+	// 文件不存在 → 直接写入模板
 	if err := os.WriteFile(cfgPath, embeds.DefaultConfigYAML, 0644); err != nil {
 		return fmt.Errorf("write config to %s: %w", cfgPath, err)
 	}
-
-	fmt.Printf("config file written to: %s\n", cfgPath)
+	fmt.Printf("config file created: %s\n", cfgPath)
 	return nil
 }
 
-// Load searches for config in program directory.
-// Returns default config if none found.
+// mergeAndWrite 读取已有配置文件，与默认值合并后写回
+func mergeAndWrite(cfgPath string) error {
+	existing, err := Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read existing config: %w", err)
+	}
+
+	out, err := yaml.Marshal(existing)
+	if err != nil {
+		return fmt.Errorf("marshal merged config: %w", err)
+	}
+
+	if err := os.WriteFile(cfgPath, out, 0644); err != nil {
+		return fmt.Errorf("write merged config to %s: %w", cfgPath, err)
+	}
+	fmt.Printf("config file updated: %s\n", cfgPath)
+	return nil
+}
+
+// Load 搜索并加载配置文件。
+// 返回合并了默认值的完整配置，文件不存在时返回内置默认配置。
 func Load(path string) (*Config, error) {
 	if path == "" {
 		path = AppConfigPath()
@@ -42,24 +67,15 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// 没有配置文件时，返回内置默认配置（仅日志输出，无通知供应商）
 			return DefaultConfig(), nil
 		}
 		return nil, fmt.Errorf("read config file %s: %w", path, err)
 	}
 
-	// 1. 获取默认配置模板
 	cfg := DefaultConfig()
-
-	// 2. 解析 YAML 覆盖默认值
-	// 注意：标准 yaml.Unmarshal 只会覆盖 YAML 中存在的字段，不会清空 cfg 中已有的默认值
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config file %s: %w", path, err)
 	}
-
-	// 3. 删除这里所有的 if cfg.XXX == "" 判断
-	// 因为 cfg 已经从 DefaultConfig() 继承了默认值，
-	// 且 Unmarshal 只会覆盖非空字段，所以这里不需要再次检查。
 
 	return cfg, nil
 }

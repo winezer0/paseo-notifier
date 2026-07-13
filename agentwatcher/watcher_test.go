@@ -126,3 +126,27 @@ func TestHandleConnStateContinuousConnectedDoesNotNotify(t *testing.T) {
 		t.Fatalf("continuous connected should not send notifications, got %d", len(sys.disconnected))
 	}
 }
+
+func TestNormalizeDaemonURL(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"already base", "http://127.0.0.1:6767", "http://127.0.0.1:6767"},
+		{"with mcp suffix", "http://127.0.0.1:6767/mcp/agents", "http://127.0.0.1:6767"},
+		{"with port and suffix", "http://localhost:6767/mcp/agents", "http://localhost:6767"},
+		{"trailing slash no mcp", "http://127.0.0.1:6767/", "http://127.0.0.1:6767/"},
+		{"only suffix no match", "http://127.0.0.1:6767/mcp", "http://127.0.0.1:6767/mcp"},
+		{"empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeDaemonURL(tt.raw)
+			if got != tt.want {
+				t.Errorf("normalizeDaemonURL(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}

@@ -50,52 +50,30 @@ type ActivityEntry struct {
 type EventType string
 
 const (
-	EventFinished          EventType = "finished"
-	EventError             EventType = "error"
-	EventPermissionRequest EventType = "permission_requested"
-	EventStuck             EventType = "stuck"
-	EventStuckWarning      EventType = "stuck_warning"
-	EventStillActive       EventType = "still_active"
-	EventRunningStatus     EventType = "running_status"
-	EventSubagentProgress EventType = "subagent_progress"
-	EventAutoContinue     EventType = "auto_continue"
+	EventFinished             EventType = "finished"
+	EventError                EventType = "error"
+	EventPermissionRequest    EventType = "permission_requested"
+	EventStuck                EventType = "stuck"
+	EventStuckWarning         EventType = "stuck_warning"
+	EventStillActive          EventType = "still_active"
+	EventRunningStatus        EventType = "running_status"
+	EventSubagentProgress     EventType = "subagent_progress"
+	EventAllSubagentsDone     EventType = "all_subagents_done"     // 全部 subagent 已完成
+	EventSubagentSpawned      EventType = "subagent_spawned"       // 首次检测到 subagent
+	EventSubagentRunning      EventType = "subagent_running"       // subagent 持续运行中
+	EventAutoContinue         EventType = "auto_continue"
+	EventStuckContinue        EventType = "stuck_continue"         // 卡死后自动发送继续提示
 )
 
 // AgentEvent 表示 Agent 状态变更事件
 type AgentEvent struct {
-	Type             EventType
-	Agent            AgentStatus
-	Timestamp        time.Time
-	Permission       *PermissionRequest
-	ActivityEntries  []ActivityEntry
-	IdleDuration     time.Duration // 卡死相关事件的静止时长（UpdatedAt 无变化时间）
-	Subagents        []SubagentInfo // 子任务/子 agent 列表（仅 subagent_progress 事件）
-}
-
-// SubagentKind 表示子 agent/子任务的来源类型
-type SubagentKind string
-
-const (
-	// SubagentOpenCode OpenCode 内部后台任务（task(run_in_background=true) → bg_xxx）
-	SubagentOpenCode SubagentKind = "opencode"
-	// SubagentPaseo Paseo 子 agent（create_agent(relationship: subagent)）
-	SubagentPaseo SubagentKind = "paseo"
-)
-
-// SubagentInfo 统一表示子 agent 或子任务的信息
-type SubagentInfo struct {
-	Kind        SubagentKind // 来源类型：opencode / paseo
-	ID          string       // bg_xxx 或 agentId
-	ParentID    string       // 父 agent ID
-	Description string       // 任务描述（OpenCode）或 agent 标题（Paseo）
-	Status      string       // running / completed / idle / error
-	Duration    string       // 运行时长
-	SessionID   string       // OpenCode 会话 ID（仅 OpenCode）
-	Title       string       // agent 标题（仅 Paseo）
-	Provider    string       // 供应商（仅 Paseo）
-	Model       string       // 模型（仅 Paseo）
-	CreatedAt   string       // RFC3339 创建时间
-	CompletedAt time.Time    // 完成时间，用于清理过期完成记录
+	Type            EventType
+	Agent           AgentStatus
+	Timestamp       time.Time
+	Permission      *PermissionRequest
+	ActivityEntries []ActivityEntry
+	IdleDuration    time.Duration        // 卡死相关事件的静止时长
+	Subagents       []ProviderSubagentStatus // 子任务列表
 }
 
 // Notifier 通知器接口
@@ -111,23 +89,22 @@ const (
 	ConnDisconnected ConnState = "disconnected"
 )
 
-// SystemNotifyFunc 系统事件通知回调（连接断开/重连）
-// disconnected=true 表示断连，false 表示重连
+// SystemNotifyFunc 系统事件通知回调
 type SystemNotifyFunc func(disconnected bool, daemonURL string)
 
 // AgentState 内部追踪的上次 Agent 状态快照
 type AgentState struct {
 	AttentionReason    *string
 	AttentionTimestamp *string
-	LastUpdatedAt        string // 上次见到的 UpdatedAt 值，用于卡死检测
-	StuckSince           string // 首次检测到 UpdatedAt 无变化的时间（RFC3339），空串表示未卡死
-	StuckNotified        bool   // 是否已发送确认卡死通知
-	StuckActionTaken     bool   // 是否已执行自动重启操作
-	RetryCount           int    // 重启重试次数，达到 maxRetries 后执行复活
-	StuckWarningSent     bool   // 是否已发送疑似卡死警告
-	StillActiveNotified  bool   // 是否已发送活动正常通知
-	StuckChecking        bool   // 正在被后台 goroutine 异步检查，主循环跳过
-	LastRunningNotify    *time.Time // 上次发送运行中状态通知的时间，nil=从未发送
+	LastUpdatedAt      string
+	StuckSince         string
+	StuckNotified      bool
+	StuckActionTaken   bool
+	RetryCount         int
+	StuckWarningSent   bool
+	StillActiveNotified bool
+	StuckChecking      bool
+	LastRunningNotify  *time.Time
 }
 
 // listAgentsResponse MCP list_agents 响应结构
