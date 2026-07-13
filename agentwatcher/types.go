@@ -50,19 +50,22 @@ type ActivityEntry struct {
 type EventType string
 
 const (
-	EventFinished             EventType = "finished"
-	EventError                EventType = "error"
-	EventPermissionRequest    EventType = "permission_requested"
-	EventStuck                EventType = "stuck"
-	EventStuckWarning         EventType = "stuck_warning"
-	EventStillActive          EventType = "still_active"
-	EventRunningStatus        EventType = "running_status"
-	EventSubagentProgress     EventType = "subagent_progress"
-	EventAllSubagentsDone     EventType = "all_subagents_done"     // 全部 subagent 已完成
-	EventSubagentSpawned      EventType = "subagent_spawned"       // 首次检测到 subagent
-	EventSubagentRunning      EventType = "subagent_running"       // subagent 持续运行中
-	EventAutoContinue         EventType = "auto_continue"
-	EventStuckContinue        EventType = "stuck_continue"         // 卡死后自动发送继续提示
+	EventFinished          EventType = "finished"
+	EventError             EventType = "error"
+	EventPermissionRequest EventType = "permission_requested"
+	EventStuck             EventType = "stuck"
+	EventStuckWarning      EventType = "stuck_warning"
+	EventStillActive       EventType = "still_active"
+	EventRunningStatus     EventType = "running_status"
+	EventSubagentProgress  EventType = "subagent_progress"
+	EventAllSubagentsDone  EventType = "all_subagents_done" // 全部 subagent 已完成
+	EventSubagentSpawned   EventType = "subagent_spawned"   // 首次检测到 subagent
+	EventSubagentRunning   EventType = "subagent_running"   // subagent 持续运行中
+	EventAutoContinue      EventType = "auto_continue"
+	EventStuckContinue     EventType = "stuck_continue" // 卡死后自动发送继续提示
+	EventStartup           EventType = "startup"        // 启动通知
+	EventDisconnect        EventType = "disconnect"     // 断连通知
+	EventReconnect         EventType = "reconnect"      // 重连通知
 )
 
 // AgentEvent 表示 Agent 状态变更事件
@@ -72,7 +75,7 @@ type AgentEvent struct {
 	Timestamp       time.Time
 	Permission      *PermissionRequest
 	ActivityEntries []ActivityEntry
-	IdleDuration    time.Duration        // 卡死相关事件的静止时长
+	IdleDuration    time.Duration            // 卡死相关事件的静止时长
 	Subagents       []ProviderSubagentStatus // 子任务列表
 }
 
@@ -94,17 +97,17 @@ type SystemNotifyFunc func(disconnected bool, daemonURL string)
 
 // AgentState 内部追踪的上次 Agent 状态快照
 type AgentState struct {
-	AttentionReason    *string
-	AttentionTimestamp *string
-	LastUpdatedAt      string
-	StuckSince         string
-	StuckNotified      bool
-	StuckActionTaken   bool
-	RetryCount         int
-	StuckWarningSent   bool
+	AttentionReason     *string
+	AttentionTimestamp  *string
+	LastUpdatedAt       string
+	StuckSince          string
+	StuckNotified       bool
+	StuckActionTaken    bool
+	RetryCount          int
+	StuckWarningSent    bool
 	StillActiveNotified bool
-	StuckChecking      bool
-	LastRunningNotify  *time.Time
+	StuckChecking       bool
+	LastRunningNotify   *time.Time
 }
 
 // listAgentsResponse MCP list_agents 响应结构

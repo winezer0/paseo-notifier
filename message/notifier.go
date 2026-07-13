@@ -14,6 +14,7 @@ import (
 // BuildNotifier 根据配置构建通知器。
 // 所有供应商（包括 console）都通过注册工厂构建，由 notify.UseServices 统一管理。
 // 未配置任何供应商时返回 NoopNotifier（仅日志输出不发送通知）。
+// 配置了 events 开关时，返回包装后的 EventFilterNotifier 按事件类型过滤。
 func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	providers := cfg.Notifier.Providers
 	if len(providers) == 0 {
@@ -45,28 +46,32 @@ func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	}
 
 	notify.UseServices(services...)
-	return &NotifyNotifier{}
+	return WrapEventFilter(&NotifyNotifier{}, cfg.Monitor.Events)
 }
 
-// SendStartupNotification 发送启动通知，仅当通知器为 NotifyNotifier 时实际发送
-func SendStartupNotification(notifier agentwatcher.Notifier) {
+// SendStartupNotification 发送启动通知，仅当通知器非 NoopNotifier 时实际发送
+func SendStartupNotification(notifier agentwatcher.Notifier, events map[string]bool) {
+	if !IsEventEnabled(events, agentwatcher.EventStartup) {
+		logging.Info("startup notification disabled by config")
+		return
+	}
 	msg := getMessages(currentLang)
-	if _, ok := notifier.(*NotifyNotifier); ok {
-		subject := fmt.Sprintf(msg.SubjectStartup, config.AppName)
-		content := msg.StartupContent
-		fmt.Println()
-		fmt.Println("=== Notification ===")
-		fmt.Println("Subject:", subject)
-		fmt.Println(content)
-		fmt.Println("====================")
-		fmt.Println()
-		if err := notify.Send(context.Background(), subject, content); err != nil {
-			logging.Warnf("startup notification failed: %v", err)
-		} else {
-			logging.Info("startup notification sent")
-		}
-	} else {
+	if _, ok := notifier.(*NoopNotifier); ok {
 		logging.Info("startup notification skipped (no external notifier configured)")
+		return
+	}
+	subject := fmt.Sprintf(msg.SubjectStartup, config.AppName)
+	content := msg.StartupContent
+	fmt.Println()
+	fmt.Println("=== Notification ===")
+	fmt.Println("Subject:", subject)
+	fmt.Println(content)
+	fmt.Println("====================")
+	fmt.Println()
+	if err := notify.Send(context.Background(), subject, content); err != nil {
+		logging.Warnf("startup notification failed: %v", err)
+	} else {
+		logging.Info("startup notification sent")
 	}
 }
 

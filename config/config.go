@@ -17,15 +17,16 @@ const Version = "0.1.0"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
-	DaemonURL               string `yaml:"daemon_url"`
-	Interval                string `yaml:"interval"`
-	StuckDetectTimeout      string `yaml:"stuck_detect_timeout"`
-	StuckRestartDelay       string `yaml:"stuck_restart_delay"`
-	StuckRestartRetry       int    `yaml:"stuck_restart_retry"`
-	RunningStatusInterval   string `yaml:"running_status_interval"`
-	SubagentRunningInterval string `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
-	AutoContinue            bool   `yaml:"auto_continue"`
-	NotifyMinDuration       string `yaml:"notify_min_duration"`        // 短于此时长完成的任务不通知，0=不抑制，默认 30s
+	DaemonURL               string         `yaml:"daemon_url"`
+	Interval                string         `yaml:"interval"`
+	StuckDetectTimeout      string         `yaml:"stuck_detect_timeout"`
+	StuckRestartDelay       string         `yaml:"stuck_restart_delay"`
+	StuckRestartRetry       int            `yaml:"stuck_restart_retry"`
+	RunningStatusInterval   string         `yaml:"running_status_interval"`
+	SubagentRunningInterval string         `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
+	AutoContinue            bool           `yaml:"auto_continue"`
+	NotifyMinDuration       string         `yaml:"notify_min_duration"`       // 最短任务通知时长，短于此时长完成的任务不发送通知
+	Events                  map[string]bool `yaml:"events,omitempty"`        // 事件开关映射，未列出的事件默认启用
 }
 
 // ProviderItem 单个通知供应商配置项

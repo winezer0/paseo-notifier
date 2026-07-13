@@ -79,7 +79,7 @@ func TestBuildNotifierSkipsInvalidProvider(t *testing.T) {
 
 func TestSendStartupNotificationWithNoopNotifier(t *testing.T) {
 	n := &NoopNotifier{}
-	SendStartupNotification(n)
+	SendStartupNotification(n, nil)
 }
 
 func TestBuildNotifierConsoleOnly(t *testing.T) {

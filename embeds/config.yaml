@@ -26,6 +26,29 @@ monitor:
   # 任务完成后自动继续（true/false，默认 false）
   # 当 Agent 最后一条活动包含"继续"等关键词时，自动发送继续提示，适用于大模型询问"是否继续"的场景
   auto_continue: false
+  # 通知事件开关（可选，全部省略 = 所有事件启用）
+  # 默认为 true，显式设为 false 可禁用该事件的通知
+  # events:
+  #   # Agent 生命周期
+  #   finished: true
+  #   error: true
+  #   permission_requested: true
+  #   # 卡死相关
+  #   stuck_warning: true
+  #   still_active: true
+  #   stuck: true
+  #   stuck_continue: true
+  #   # 运行心跳
+  #   running_status: true
+  #   # 子任务相关
+  #   subagent_spawned: true
+  #   subagent_running: true
+  #   all_subagents_done: true
+  #   auto_continue: true
+  #   # 系统事件
+  #   startup: true
+  #   disconnect: true
+  #   reconnect: true
   # 最短任务通知时长（Go time.Duration 格式），0s/0m/0h/false/空 = 不抑制，默认 30s
   # 短于此时长完成的任务不发送通知（用户通常已看到结果，通知无意义）
   notify_min_duration: 30s

@@ -1,0 +1,331 @@
+package agentwatcher
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/winezer0/paseo-notifier/logging"
+)
+
+// isEventEnabled 检查事件是否启用（未配置默认启用）
+func (w *Watcher) isEventEnabled(eventType EventType) bool {
+	on, exists := w.events[string(eventType)]
+	if !exists {
+		return true
+	}
+	return on
+}
+
+// handleConnState 处理连接状态转换
+func (w *Watcher) handleConnState(disconnected bool) {
+	switch {
+	case disconnected && w.connState == ConnConnected:
+		w.connState = ConnDisconnected
+		w.sendDisconnectedNotify()
+
+	case !disconnected && w.connState == ConnDisconnected:
+		w.connState = ConnConnected
+		w.mu.Lock()
+		w.prevAgents = make(map[string]*AgentState)
+		w.prevPermIDs = make(map[string]bool)
+		w.mu.Unlock()
+		w.sendReconnectedNotify()
+
+	case disconnected && w.connState == ConnDisconnected:
+	case !disconnected && w.connState == ConnConnected:
+	}
+}
+
+// setupSubagentTracking 初始化 provider subagent 追踪器，注册 WS 消息处理器
+func (w *Watcher) setupSubagentTracking() {
+	if w.wsClient == nil {
+		return
+	}
+
+	// 共享的 agent 查找函数，避免每处重复 fetchAgents
+	lookupAgent := func(agentID string) AgentStatus {
+		agents, err := w.fetchAgents()
+		if err != nil {
+			return AgentStatus{ID: agentID, ShortID: agentID}
+		}
+		for _, a := range agents {
+			if a.ID == agentID {
+				return a
+			}
+		}
+		return AgentStatus{ID: agentID, ShortID: agentID}
+	}
+
+	w.subagentTracker = NewProviderSubagentTracker(
+		// 全部完成回调
+		func(parentAgentID string, subagents []ProviderSubagentStatus) {
+			agent := lookupAgent(parentAgentID)
+			ev := AgentEvent{
+				Type:      EventAllSubagentsDone,
+				Agent:     agent,
+				Timestamp: time.Now(),
+				Subagents: subagents,
+			}
+			if err := w.notifier.Notify(w.ctx, ev); err != nil {
+				logging.Errorf("notify all subagents done failed agentId=%s err=%v", parentAgentID, err)
+			} else {
+				logging.Infof("all subagents done notified agentId=%s count=%d", agent.ShortID, len(subagents))
+			}
+
+			// 子任务完成后自动继续：父 agent 处于 idle/finished 时触发
+			if w.autoContinue && w.continuePrompt != "" {
+				if agent.Status == "idle" || (agent.AttentionReason != nil && *agent.AttentionReason == "finished") {
+					logging.Infof("auto continue after subagents agentId=%s status=%s", agent.ShortID, agent.Status)
+					prompt := w.subagentDoneContinuePrompt
+					if prompt == "" {
+						prompt = w.continuePrompt
+					}
+					if err := w.continueAgent(parentAgentID, prompt); err != nil {
+						logging.Warnf("auto continue after subagents failed agentId=%s err=%v", agent.ShortID, err)
+					} else {
+						acEv := AgentEvent{
+							Type:      EventAutoContinue,
+							Agent:     agent,
+							Timestamp: time.Now(),
+						}
+						if err := w.notifier.Notify(w.ctx, acEv); err != nil {
+							logging.Errorf("notify auto continue after subagents failed agentId=%s err=%v", parentAgentID, err)
+						}
+					}
+				}
+			}
+		},
+		// 首个 subagent 出现回调
+		func(parentAgentID string, subagent ProviderSubagentStatus) {
+			agent := lookupAgent(parentAgentID)
+			// 预占位运行通知间隔，避免 spawn 后立即触发 running 通知
+			w.mu.Lock()
+			w.lastSubagentNotify[parentAgentID] = time.Now()
+			w.mu.Unlock()
+			ev := AgentEvent{
+				Type:      EventSubagentSpawned,
+				Agent:     agent,
+				Timestamp: time.Now(),
+				Subagents: []ProviderSubagentStatus{subagent},
+			}
+			if err := w.notifier.Notify(w.ctx, ev); err != nil {
+				logging.Errorf("notify subagent spawned failed agentId=%s err=%v", parentAgentID, err)
+			} else {
+				logging.Infof("subagent spawned notified agentId=%s sub=%s", agent.ShortID, subagent.SubagentID)
+			}
+		},
+	)
+
+	// 注册 WS 消息处理器
+	w.wsClient.OnMessage(BuildUpdateType(), w.subagentTracker.HandleSubagentUpdate)
+	w.wsClient.OnMessage(BuildListResponseType(), w.subagentTracker.HandleSubagentList)
+
+	// 连接成功后请求所有活跃 agent 的 subagent 列表
+	w.wsClient.OnConnected(func() {
+		agents, err := w.fetchAgents()
+		if err != nil {
+			return
+		}
+		for _, a := range agents {
+			if a.ArchivedAt != nil {
+				continue
+			}
+			msg := BuildListRequest(fmt.Sprintf("list-%s-%d", a.ID, time.Now().UnixNano()), a.ID)
+			if err := w.wsClient.Send(msg); err != nil {
+				logging.Debugf("ws request subagent list failed agentId=%s err=%v", a.ShortID, err)
+			}
+		}
+	})
+
+	// 断开时重置追踪状态
+	w.wsClient.OnDisconnected(func() {
+		if w.subagentTracker != nil {
+			w.subagentTracker.Reset()
+		}
+		w.lastSubagentNotify = make(map[string]time.Time)
+	})
+}
+
+// checkRunningAgents 检查运行中的 Agent，定期发送心跳通知。
+// 附带当前 subagent 进度汇总。
+func (w *Watcher) checkRunningAgents(agents []AgentStatus) {
+	if w.runningStatusInterval == 0 {
+		return
+	}
+	now := time.Now()
+	for _, agent := range agents {
+		if w.shouldSkipRunningCheck(agent) {
+			continue
+		}
+		prev, exists := w.prevAgents[agent.ID]
+		if !exists {
+			continue
+		}
+
+		lastUserTime := agent.LastUserMessageAt
+		if lastUserTime == "" {
+			lastUserTime = agent.CreatedAt
+		}
+		if lastUserTime == "" {
+			continue
+		}
+		lastUserTimeParsed, err := time.Parse(time.RFC3339, lastUserTime)
+		if err != nil {
+			continue
+		}
+		sinceLastUser := now.Sub(lastUserTimeParsed)
+		if sinceLastUser < w.runningStatusInterval {
+			continue
+		}
+
+		w.mu.Lock()
+		if prev.LastRunningNotify != nil && now.Sub(*prev.LastRunningNotify) < w.runningStatusInterval {
+			w.mu.Unlock()
+			continue
+		}
+		prev.LastRunningNotify = &now
+		w.mu.Unlock()
+
+		go func(agent AgentStatus) {
+			entries := w.getAgentActivity(agent.ID)
+			var subagents []ProviderSubagentStatus
+			if w.subagentTracker != nil {
+				subagents = w.subagentTracker.GetByParent(agent.ID)
+			}
+			ev := AgentEvent{
+				Type:            EventRunningStatus,
+				Agent:           agent,
+				Timestamp:       now,
+				ActivityEntries: entries,
+				Subagents:       subagents,
+			}
+			if err := w.notifier.Notify(w.ctx, ev); err != nil {
+				logging.Errorf("notify running status failed agentId=%s err=%v", agent.ID, err)
+			} else {
+				logging.Infof("running status notified agentId=%s title=%s idle=%s", agent.ShortID, agent.Title, sinceLastUser)
+			}
+		}(agent)
+	}
+}
+
+// shouldSkipRunningCheck 判断 Agent 是否应跳过运行中状态检测
+func (w *Watcher) shouldSkipRunningCheck(agent AgentStatus) bool {
+	switch {
+	case agent.ArchivedAt != nil:
+		return true
+	case agent.Status != "running":
+		return true
+	case agent.AttentionReason != nil && (*agent.AttentionReason == "finished" || *agent.AttentionReason == "error"):
+		return true
+	case len(w.managedAgents) > 0 && !w.managedAgents[agent.ID]:
+		return true
+	}
+	return false
+}
+
+// shouldSkipStuckCheck 判断 Agent 是否应跳过卡死检测
+func (w *Watcher) shouldSkipStuckCheck(agent AgentStatus) bool {
+	switch {
+	case agent.ArchivedAt != nil:
+		return true
+	case agent.Status != "running":
+		return true
+	case agent.AttentionReason != nil && (*agent.AttentionReason == "finished" || *agent.AttentionReason == "error"):
+		return true
+	case len(w.managedAgents) > 0 && !w.managedAgents[agent.ID]:
+		return true
+	}
+	return false
+}
+
+func (w *Watcher) sendDisconnectedNotify() {
+	logging.Warn("mcp daemon disconnected, agent notifications paused")
+	if !w.isEventEnabled(EventDisconnect) {
+		logging.Debug("disconnect notification disabled by config")
+		return
+	}
+	if w.sysNotifyFn != nil {
+		w.sysNotifyFn(true, w.daemonURL)
+	}
+}
+
+func (w *Watcher) sendReconnectedNotify() {
+	logging.Info("mcp daemon reconnected, agent notifications resumed")
+	if !w.isEventEnabled(EventReconnect) {
+		logging.Debug("reconnect notification disabled by config")
+		return
+	}
+	if w.sysNotifyFn != nil {
+		w.sysNotifyFn(false, w.daemonURL)
+	}
+}
+
+// checkRunningSubagents 循环检测：当 subagent 持续运行时，每隔 subagentRunningInterval 发送通知
+func (w *Watcher) checkRunningSubagents() {
+	if w.subagentTracker == nil || w.subagentRunningInterval == 0 {
+		return
+	}
+	now := time.Now()
+	for _, parentID := range w.subagentTracker.GetTrackedParents() {
+		if len(w.managedAgents) > 0 && !w.managedAgents[parentID] {
+			continue
+		}
+		if !w.subagentTracker.HasRunningSubagents(parentID) {
+			continue
+		}
+
+		w.mu.Lock()
+		lastNotify, exists := w.lastSubagentNotify[parentID]
+		if exists && now.Sub(lastNotify) < w.subagentRunningInterval {
+			w.mu.Unlock()
+			continue
+		}
+		w.lastSubagentNotify[parentID] = now
+		w.mu.Unlock()
+
+		go func(pid string) {
+			agent := w.lookupAgent(pid)
+			subagents := w.subagentTracker.GetByParent(pid)
+			ev := AgentEvent{
+				Type:      EventSubagentRunning,
+				Agent:     agent,
+				Timestamp: now,
+				Subagents: subagents,
+			}
+			if err := w.notifier.Notify(w.ctx, ev); err != nil {
+				logging.Errorf("notify subagent running failed agentId=%s err=%v", pid, err)
+			} else {
+				logging.Infof("subagent running notified agentId=%s running=%d", agent.ShortID, len(subagents))
+			}
+		}(parentID)
+	}
+}
+
+// lookupAgent 查找 agent 信息（fetchAgents 失败时返回仅有 ID 的占位 AgentStatus）
+func (w *Watcher) lookupAgent(agentID string) AgentStatus {
+	agents, err := w.fetchAgents()
+	if err != nil {
+		return AgentStatus{ID: agentID, ShortID: agentID}
+	}
+	for _, a := range agents {
+		if a.ID == agentID {
+			return a
+		}
+	}
+	return AgentStatus{ID: agentID, ShortID: agentID}
+}
+
+// fetchAgentStatus 重新获取指定 Agent 的最新状态
+// 返回 nil 表示 Agent 未找到或 fetch 失败
+func (w *Watcher) fetchAgentStatus(agentID string) *AgentStatus {
+	agents, err := w.fetchAgents()
+	if err != nil {
+		return nil
+	}
+	for i := range agents {
+		if agents[i].ID == agentID {
+			return &agents[i]
+		}
+	}
+	return nil
+}
