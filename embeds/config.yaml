@@ -86,11 +86,16 @@ notifier:
     #     secret: ""
 
     # ---- 类型: lark_webhook ----
-    # 飞书群聊机器人（Webhook 模式）
-    # 在飞书群中添加"自定义机器人"，获取 Webhook URL
+    # 飞书群聊机器人（Webhook 模式，已支持签名验证）
+    # 在飞书群中添加"自定义机器人"，获取 Webhook URL 和 Secret（签名密钥）
+    # webhook_url: 机器人的 Webhook 地址（必填）
+    # secret: 签名验证密钥（选填，建议在飞书机器人设置中开启"签名校验"后填写）
+    #   若填写 secret，每次发送消息会自动附加 HMAC-SHA256 签名；
+    #   若留空则不附加签名（仅适用于未开启安全设置的机器人）。
     # - type: "lark_webhook"
     #   config:
     #     webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-id"
+    #     secret: "your-webhook-secret"
 
     # ---- 类型: lark_app ----
     # 飞书自应用（支持指定接收者）

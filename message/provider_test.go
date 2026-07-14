@@ -208,6 +208,24 @@ func TestLarkWebhookFactoryDecodesConfig(t *testing.T) {
 	}
 }
 
+func TestLarkWebhookFactoryDecodesConfigWithSecret(t *testing.T) {
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte("webhook_url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx\nsecret: mysecret\n"), &node); err != nil {
+		t.Fatalf("unmarshal yaml: %v", err)
+	}
+	svc, err := newLarkWebhookProvider(node)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if svc == nil {
+		t.Fatal("expected non-nil service")
+	}
+	// 带 secret 时应返回 signedWebhookService 而非 lark.WebhookService
+	if _, ok := svc.(*signedWebhookService); !ok {
+		t.Fatalf("expected *signedWebhookService when secret is configured, got %T", svc)
+	}
+}
+
 func TestLarkAppFactoryDecodesConfig(t *testing.T) {
 	var node yaml.Node
 	yamlStr := "app_id: cli_xxx\napp_secret: mysecret\nreceivers:\n  - type: chat_id\n    value: oc_test\n"
