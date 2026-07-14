@@ -74,9 +74,9 @@ notifier:
     # ---- 类型: console ----
     # 控制台输出（带 emoji 格式），enable: true 时启用
     # 未配置 console 且无其他供应商时，事件仅输出到日志
-     - type: "console"
-       config:
-         enable: true
+    - type: "console"
+      config:
+        enable: true
 
     # ---- 类型: dingtalk ----
     # 钉钉自定义机器人（Webhook + 加签）
