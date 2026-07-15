@@ -66,6 +66,7 @@ const (
 	EventStartup           EventType = "startup"        // 启动通知
 	EventDisconnect        EventType = "disconnect"     // 断连通知
 	EventReconnect         EventType = "reconnect"      // 重连通知
+	EventCancelled         EventType = "cancelled"      // 用户手动取消/终止任务
 )
 
 // AgentEvent 表示 Agent 状态变更事件

@@ -59,8 +59,9 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 				eventType = EventFinished
 			case "error":
 				eventType = EventError
+			case "cancelled":
+				eventType = EventCancelled
 			default:
-				// 其他 AttentionReason（如 "cancelled"）统一按 finished 处理
 				logging.Warnf("unknown attentionReason=%q agentId=%s, treating as finished", *agent.AttentionReason, agent.ShortID)
 				eventType = EventFinished
 			}
@@ -111,6 +112,12 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			LastUpdatedAt:      agent.UpdatedAt,
 		}
 		w.mu.Unlock()
+
+		// 用户取消/手动终止：仅记录日志，不发送通知
+		if eventType == EventCancelled {
+			logging.Infof("agent cancelled by user agentId=%s title=%s", agent.ShortID, agent.Title)
+			return
+		}
 
 		// 获取活动摘要，附加到通知中
 		activityEntries := w.getAgentActivity(agent.ID)

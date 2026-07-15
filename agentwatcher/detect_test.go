@@ -80,6 +80,48 @@ func TestDetectErrorEvent(t *testing.T) {
 	}
 }
 
+func TestDetectCancelledEvent(t *testing.T) {
+	notifier := &mockNotifier{}
+	w := testWatcher(notifier)
+
+	agent1 := AgentStatus{
+		ID:              "agent-cancel-1",
+		ShortID:         "agent-cancel-1",
+		Title:           "取消任务",
+		Provider:        "codex",
+		Status:          "running",
+		AttentionReason: nil,
+	}
+
+	agent2 := AgentStatus{
+		ID:                "agent-cancel-1",
+		ShortID:           "agent-cancel-1",
+		Title:             "取消任务",
+		Provider:          "codex",
+		Status:            "idle",
+		RequiresAttention: true,
+		AttentionReason:   strPtr("cancelled"),
+	}
+
+	// 第一次扫描：无 attentionReason → 记录状态，不触发事件
+	w.detectAgentChange(agent1)
+	if len(notifier.events) != 0 {
+		t.Fatalf("first scan should record state, not trigger event, got %d events", len(notifier.events))
+	}
+
+	// 第二次扫描：attentionReason=cancelled → 更新状态，不发送通知
+	w.detectAgentChange(agent2)
+	if len(notifier.events) != 0 {
+		t.Fatalf("cancelled event should not send notification, got %d events", len(notifier.events))
+	}
+
+	// 第三次扫描：相同 cancelled 状态 → 不重复触发
+	w.detectAgentChange(agent2)
+	if len(notifier.events) != 0 {
+		t.Fatalf("duplicate cancelled should not trigger again, got %d events", len(notifier.events))
+	}
+}
+
 func TestDeduplicateFinishedEvent(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := testWatcher(notifier)
