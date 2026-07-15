@@ -28,6 +28,15 @@ func makeListPayload(subagents ...providerSubagentPayload) json.RawMessage {
 	return data
 }
 
+// subagentIDs 提取 subagent ID 列表，便于测试断言
+func subagentIDs(subs []ProviderSubagentStatus) []string {
+	ids := make([]string, len(subs))
+	for i, sa := range subs {
+		ids[i] = sa.SubagentID
+	}
+	return ids
+}
+
 func TestProviderTrackerSingleComplete(t *testing.T) {
 	var gotParentID string
 	var gotSubagents []ProviderSubagentStatus
@@ -108,14 +117,19 @@ func TestProviderTrackerNoDuplicateNotification(t *testing.T) {
 
 func TestProviderTrackerNewSubagentResetsFlag(t *testing.T) {
 	var callCount int
+	var gotSubagents []ProviderSubagentStatus
 	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
 		callCount++
+		gotSubagents = subagents
 	}, nil)
 
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "completed"))
 	if callCount != 1 {
 		t.Fatalf("first round all-done: expected 1, got %d", callCount)
+	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-1" {
+		t.Fatalf("first round: expected [sub-1], got %v", subagentIDs(gotSubagents))
 	}
 
 	// 新增子任务 → 重置标记
@@ -125,12 +139,80 @@ func TestProviderTrackerNewSubagentResetsFlag(t *testing.T) {
 	if callCount != 2 {
 		t.Fatalf("second round all-done: expected 2, got %d", callCount)
 	}
+	// 第二轮只应包含新完成的 sub-2，不应包含历史的 sub-1
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-2" {
+		t.Fatalf("second round: expected [sub-2] only, got %v", subagentIDs(gotSubagents))
+	}
+}
+
+func TestProviderTrackerNoDuplicateAfterReconnect(t *testing.T) {
+	var callCount int
+	var gotSubagents []ProviderSubagentStatus
+	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
+		callCount++
+		gotSubagents = subagents
+	}, nil)
+
+	// 第一轮：子任务完成 → 通知 1 次
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "completed"))
+	if callCount != 1 {
+		t.Fatalf("first round: expected 1, got %d", callCount)
+	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-1" {
+		t.Fatalf("first round: expected [sub-1], got %v", subagentIDs(gotSubagents))
+	}
+
+	// 模拟重连：Reset 保留 allDoneNotified，清空 subagents map
+	tracker.Reset()
+
+	// 重连后已完成子任务逐个回放 → 不应触发重复通知
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "completed"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-2", "task B", "codex", "completed"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-3", "task C", "opencode", "completed"))
+	if callCount != 1 {
+		t.Fatalf("after reconnect replay: allDoneNotified should prevent duplicates, got %d calls", callCount)
+	}
+}
+
+func TestProviderTrackerNewSubagentAfterReconnect(t *testing.T) {
+	var callCount int
+	var gotSubagents []ProviderSubagentStatus
+	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
+		callCount++
+		gotSubagents = subagents
+	}, nil)
+
+	// 第一轮完成
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "completed"))
+	if callCount != 1 {
+		t.Fatalf("first round: expected 1, got %d", callCount)
+	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-1" {
+		t.Fatalf("first round: expected [sub-1], got %v", subagentIDs(gotSubagents))
+	}
+
+	tracker.Reset()
+
+	// 重连后出现新 running 子任务 → 应重置 allDoneNotified，完成时可再次通知
+	// 通知中只包含新完成的 sub-2，不包含历史的 sub-1
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-2", "task B", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-2", "task B", "codex", "completed"))
+	if callCount != 2 {
+		t.Fatalf("new running subagent after reconnect: expected 2, got %d", callCount)
+	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-2" {
+		t.Fatalf("second round: expected [sub-2] only, got %v", subagentIDs(gotSubagents))
+	}
 }
 
 func TestProviderTrackerSubagentRevived(t *testing.T) {
 	var callCount int
+	var gotSubagents []ProviderSubagentStatus
 	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
 		callCount++
+		gotSubagents = subagents
 	}, nil)
 
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
@@ -138,14 +220,20 @@ func TestProviderTrackerSubagentRevived(t *testing.T) {
 	if callCount != 1 {
 		t.Fatalf("first all-done: expected 1, got %d", callCount)
 	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-1" {
+		t.Fatalf("first round: expected [sub-1], got %v", subagentIDs(gotSubagents))
+	}
 
-	// running 复活 → 重置标记
+	// running 复活 → 重置标记，并从已通知集合移除
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
 
-	// 再次完成 → 重新触发
+	// 再次完成 → 重新触发，复活后的 sub-1 应再次出现在通知中
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "completed"))
 	if callCount != 2 {
 		t.Fatalf("revived all-done: expected 2, got %d", callCount)
+	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-1" {
+		t.Fatalf("revived round: expected [sub-1], got %v", subagentIDs(gotSubagents))
 	}
 }
 
@@ -191,8 +279,10 @@ func TestProviderTrackerNoSubagents(t *testing.T) {
 
 func TestProviderTrackerReset(t *testing.T) {
 	var callCount int
+	var gotSubagents []ProviderSubagentStatus
 	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
 		callCount++
+		gotSubagents = subagents
 	}, nil)
 
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
@@ -200,10 +290,14 @@ func TestProviderTrackerReset(t *testing.T) {
 	if callCount != 1 {
 		t.Fatalf("before reset: expected 1, got %d", callCount)
 	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-1" {
+		t.Fatalf("first round: expected [sub-1], got %v", subagentIDs(gotSubagents))
+	}
 
 	tracker.Reset()
 
-	// Reset 不清空 allDoneNotified → 重连后 list.response 加载已完成 subagent 不重复通知
+	// Reset 不清空 allDoneNotified / allDoneNotifiedSubs
+	// → 重连后 list.response 加载已完成 subagent 不重复通知，且历史 subagent 不重复推送
 	tracker.HandleSubagentList(makeListPayload(
 		providerSubagentPayload{ParentAgentID: "agent-1", ID: "sub-1", Title: "task A", Provider: "codex", Status: "completed"},
 	))
@@ -214,24 +308,33 @@ func TestProviderTrackerReset(t *testing.T) {
 
 func TestProviderTrackerResetNewSubagentAfterReset(t *testing.T) {
 	var callCount int
+	var gotSubagents []ProviderSubagentStatus
 	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
 		callCount++
+		gotSubagents = subagents
 	}, nil)
 
-	// 第一轮完成 → 通知
+	// 第一轮完成 → 通知（包含 sub-1）
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "completed"))
 	if callCount != 1 {
 		t.Fatalf("first round: expected 1, got %d", callCount)
 	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-1" {
+		t.Fatalf("first round: expected [sub-1], got %v", subagentIDs(gotSubagents))
+	}
 
 	tracker.Reset()
 
 	// Reset 后出现新 subagent → 应重新触发（因为新 subagent 重置了 allDoneNotified）
+	// 但通知中不应包含历史的 sub-1（只返回新完成的 sub-2）
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-2", "task B", "codex", "running"))
 	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-2", "task B", "codex", "completed"))
 	if callCount != 2 {
 		t.Fatalf("new subagent after reset: expected 2, got %d", callCount)
+	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-2" {
+		t.Fatalf("second round: expected [sub-2] only, got %v", subagentIDs(gotSubagents))
 	}
 }
 
@@ -256,9 +359,11 @@ func TestProviderTrackerGetByParent(t *testing.T) {
 func TestProviderTrackerListResponse(t *testing.T) {
 	var gotParentID string
 	var gotSubagents []ProviderSubagentStatus
+	var callCount int
 	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
 		gotParentID = parentID
 		gotSubagents = subagents
+		callCount++
 	}, nil)
 
 	payload := makeListPayload(
@@ -270,8 +375,103 @@ func TestProviderTrackerListResponse(t *testing.T) {
 	if gotParentID != "agent-1" {
 		t.Fatalf("list with all completed should trigger: got %q", gotParentID)
 	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 call, got %d", callCount)
+	}
 	if len(gotSubagents) != 2 {
-		t.Fatalf("expected 2 subagents, got %d", len(gotSubagents))
+		t.Fatalf("expected 2 subagents, got %v", subagentIDs(gotSubagents))
+	}
+
+	// 再次调用 list response → allDoneNotified 已设置，不应重复触发
+	tracker.HandleSubagentList(payload)
+	if callCount != 1 {
+		t.Fatalf("duplicate list should not trigger: expected 1, got %d", callCount)
+	}
+}
+
+func TestProviderTrackerAllDoneOnlyNewSubs(t *testing.T) {
+	var callCount int
+	var gotSubagents []ProviderSubagentStatus
+	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
+		callCount++
+		gotSubagents = subagents
+	}, nil)
+
+	// 第一轮：三个子任务全部完成 → 通知包含 A, B, C
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-A", "task A", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-B", "task B", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-C", "task C", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-A", "task A", "codex", "completed"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-B", "task B", "codex", "completed"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-C", "task C", "codex", "completed"))
+	if callCount != 1 {
+		t.Fatalf("round 1: expected 1, got %d", callCount)
+	}
+	if len(gotSubagents) != 3 {
+		t.Fatalf("round 1: expected 3 subagents, got %v", subagentIDs(gotSubagents))
+	}
+
+	// 第二轮：新增两个子任务，完成后只返回 D, E（不包含 A, B, C）
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-D", "task D", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-E", "task E", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-D", "task D", "codex", "completed"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-E", "task E", "codex", "completed"))
+	if callCount != 2 {
+		t.Fatalf("round 2: expected 2, got %d", callCount)
+	}
+	if len(gotSubagents) != 2 {
+		t.Fatalf("round 2: expected 2 subagents, got %v", subagentIDs(gotSubagents))
+	}
+	got := make(map[string]bool)
+	for _, sa := range gotSubagents {
+		got[sa.SubagentID] = true
+	}
+	if !got["sub-D"] || !got["sub-E"] {
+		t.Fatalf("round 2: expected [sub-D, sub-E], got %v", subagentIDs(gotSubagents))
+	}
+
+	// 第三轮：仅复活 sub-A，完成后只返回 sub-A
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-A", "task A", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-A", "task A", "codex", "completed"))
+	if callCount != 3 {
+		t.Fatalf("round 3: expected 3, got %d", callCount)
+	}
+	if len(gotSubagents) != 1 || gotSubagents[0].SubagentID != "sub-A" {
+		t.Fatalf("round 3: expected [sub-A], got %v", subagentIDs(gotSubagents))
+	}
+}
+
+func TestProviderTrackerListResponseNewRunningSubagent(t *testing.T) {
+	var callCount int
+	tracker := NewProviderSubagentTracker(func(parentID string, subagents []ProviderSubagentStatus) {
+		callCount++
+	}, nil)
+
+	// 第一轮：全部完成 → 通知
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "running"))
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-1", "task A", "codex", "completed"))
+	if callCount != 1 {
+		t.Fatalf("first round: expected 1, got %d", callCount)
+	}
+
+	tracker.Reset()
+
+	// 重连后 list response 包含新 running subagent → 应重置 allDoneNotified
+	payload := makeListPayload(
+		providerSubagentPayload{ParentAgentID: "agent-1", ID: "sub-1", Title: "task A", Provider: "codex", Status: "completed"},
+		providerSubagentPayload{ParentAgentID: "agent-1", ID: "sub-2", Title: "task B", Provider: "codex", Status: "running"},
+	)
+	tracker.HandleSubagentList(payload)
+
+	// 此时已有 running subagent，不应触发全部完成
+	if callCount != 1 {
+		t.Fatalf("list with running should not trigger all-done: expected 1, got %d", callCount)
+	}
+
+	// 新 subagent 完成后应触发通知
+	tracker.HandleSubagentUpdate(makeUpdatePayload("agent-1", "sub-2", "task B", "codex", "completed"))
+	if callCount != 2 {
+		t.Fatalf("after new subagent completes: expected 2, got %d", callCount)
 	}
 }
 

@@ -31,22 +31,24 @@ type ProviderSubagentStatus struct {
 // ProviderSubagentTracker 通过 WebSocket 推送追踪 provider subagent 完成状态。
 // 当某个父 agent 首次出现 subagent、全部完成、或持续运行超时，触发对应回调。
 type ProviderSubagentTracker struct {
-	mu                sync.Mutex
-	subagents         map[string]*ProviderSubagentStatus // key = parentAgentID + "/" + subagentID
-	allDoneNotified   map[string]bool                    // 已发送"全部完成"通知的 parent agent
-	spawnNotified     map[string]bool                    // 已发送"首个子任务出现"通知的 parent agent
-	onAllDone         func(parentAgentID string, subagents []ProviderSubagentStatus)
-	onFirstSubagent   func(parentAgentID string, subagent ProviderSubagentStatus)
+	mu                  sync.Mutex
+	subagents           map[string]*ProviderSubagentStatus // key = parentAgentID + "/" + subagentID
+	allDoneNotified     map[string]bool                    // 已发送"全部完成"通知的 parent agent
+	allDoneNotifiedSubs map[string]map[string]bool         // 已通知过的 subagent ID 集合，key = parentAgentID，避免历史 subagent 重复推送
+	spawnNotified       map[string]bool                    // 已发送"首个子任务出现"通知的 parent agent
+	onAllDone           func(parentAgentID string, subagents []ProviderSubagentStatus)
+	onFirstSubagent     func(parentAgentID string, subagent ProviderSubagentStatus)
 }
 
 // NewProviderSubagentTracker 创建追踪器
 func NewProviderSubagentTracker(onAllDone func(parentAgentID string, subagents []ProviderSubagentStatus), onFirstSubagent func(parentAgentID string, subagent ProviderSubagentStatus)) *ProviderSubagentTracker {
 	return &ProviderSubagentTracker{
-		subagents:       make(map[string]*ProviderSubagentStatus),
-		allDoneNotified: make(map[string]bool),
-		spawnNotified:   make(map[string]bool),
-		onAllDone:       onAllDone,
-		onFirstSubagent: onFirstSubagent,
+		subagents:           make(map[string]*ProviderSubagentStatus),
+		allDoneNotified:     make(map[string]bool),
+		allDoneNotifiedSubs: make(map[string]map[string]bool),
+		spawnNotified:       make(map[string]bool),
+		onAllDone:           onAllDone,
+		onFirstSubagent:     onFirstSubagent,
 	}
 }
 
@@ -102,7 +104,11 @@ func (t *ProviderSubagentTracker) HandleSubagentUpdate(payload json.RawMessage) 
 	var allDoneCb func()
 
 	if !exists {
-		delete(t.allDoneNotified, update.ParentAgentID)
+		// 仅当新子任务为 running 状态时重置"全部完成"标记
+		// 避免重连后已完成子任务逐个回放时触发重复通知
+		if update.Status == "running" {
+			delete(t.allDoneNotified, update.ParentAgentID)
+		}
 		updateCopy := update
 		t.subagents[k] = &updateCopy
 		logging.Debugf("provider_subagent new parent=%s sub=%s status=%s title=%s",
@@ -120,6 +126,10 @@ func (t *ProviderSubagentTracker) HandleSubagentUpdate(payload json.RawMessage) 
 	} else if existing.Status != update.Status {
 		if existing.Status == "completed" && update.Status == "running" {
 			delete(t.allDoneNotified, update.ParentAgentID)
+			// 从已通知集合中移除，复活后完成时可再次出现在通知中
+			if notified, ok := t.allDoneNotifiedSubs[update.ParentAgentID]; ok {
+				delete(notified, update.SubagentID)
+			}
 		}
 		existing.Status = update.Status
 		existing.Title = update.Title
@@ -166,6 +176,13 @@ func (t *ProviderSubagentTracker) HandleSubagentList(payload json.RawMessage) {
 		k := t.key(sa.ParentAgentID, sa.ID)
 		existing, exists := t.subagents[k]
 		if exists {
+			// 检测 completed→running 复活：重置全部完成标记并从已通知集合移除
+			if sa.Status == "running" && existing.Status == "completed" {
+				delete(t.allDoneNotified, sa.ParentAgentID)
+				if notified, ok := t.allDoneNotifiedSubs[sa.ParentAgentID]; ok {
+					delete(notified, sa.ID)
+				}
+			}
 			// 仅在 list 数据有值时更新，避免空值覆盖 WS 推送的实时状态
 			if sa.Status != "" {
 				existing.Status = sa.Status
@@ -180,6 +197,10 @@ func (t *ProviderSubagentTracker) HandleSubagentList(payload json.RawMessage) {
 				existing.Provider = sa.Provider
 			}
 		} else {
+			// 新 subagent 且为 running → 重置全部完成标记
+			if sa.Status == "running" {
+				delete(t.allDoneNotified, sa.ParentAgentID)
+			}
 			t.subagents[k] = &ProviderSubagentStatus{
 				ParentAgentID: sa.ParentAgentID,
 				SubagentID:    sa.ID,
@@ -249,15 +270,26 @@ func (t *ProviderSubagentTracker) checkAllDoneLocked(parentID string) (bool, []P
 
 	t.allDoneNotified[parentID] = true
 
-	var all []ProviderSubagentStatus
-	for _, sa := range t.subagents {
-		if sa.ParentAgentID == parentID {
-			all = append(all, *sa)
-		}
+	// 初始化已通知集合
+	if t.allDoneNotifiedSubs[parentID] == nil {
+		t.allDoneNotifiedSubs[parentID] = make(map[string]bool)
 	}
 
-	logging.Infof("provider_subagent all done parent=%s count=%d", parentID, len(all))
-	return true, all
+	// 只返回本轮新增的 subagent（尚未通知过的），避免历史 subagent 重复推送
+	var newSubs []ProviderSubagentStatus
+	notifiedSet := t.allDoneNotifiedSubs[parentID]
+	for _, sa := range t.subagents {
+		if sa.ParentAgentID != parentID {
+			continue
+		}
+		if !notifiedSet[sa.SubagentID] {
+			newSubs = append(newSubs, *sa)
+		}
+		notifiedSet[sa.SubagentID] = true
+	}
+
+	logging.Infof("provider_subagent all done parent=%s total=%d new=%d", parentID, len(notifiedSet), len(newSubs))
+	return true, newSubs
 }
 
 // GetByParent 返回指定父 agent 的所有 subagent（用于心跳通知）
@@ -298,7 +330,8 @@ func (t *ProviderSubagentTracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.subagents = make(map[string]*ProviderSubagentStatus)
-	// allDoneNotified / spawnNotified 不清空——重连后不应重复通知已完成的 subagent
+	// allDoneNotified / allDoneNotifiedSubs / spawnNotified 不清空
+	// 重连后已完成 subagent 不应重复推送，也不应重复出现在全部完成通知中
 }
 
 // BuildListRequest 构建请求 subagent 列表的消息

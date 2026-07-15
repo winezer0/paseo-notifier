@@ -13,7 +13,7 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.1.2"
+const Version = "0.1.3"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
