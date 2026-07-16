@@ -511,15 +511,20 @@ func buildSubagentRunningContent(event agentwatcher.AgentEvent, msg messages) st
 	b.WriteString(buildAgentInfoSection(a, msg))
 
 	b.WriteString("\n" + msg.SectionSubagents + "\n")
+	var running []agentwatcher.ProviderSubagentStatus
 	for _, sa := range event.Subagents {
-		b.WriteString(fmt.Sprintf("  %s %s", subagentRunningMarker(sa.Status), sa.SubagentID))
+		if sa.Status == "running" {
+			running = append(running, sa)
+		}
+	}
+	for _, sa := range running {
+		b.WriteString(fmt.Sprintf("  ▶ %s", sa.SubagentID))
 		if sa.Title != "" {
 			b.WriteString(fmt.Sprintf(" - %s", sa.Title))
 		}
-		appendStatusLabel(&b, sa.Status)
 		b.WriteString("\n")
 	}
-	b.WriteString(fmt.Sprintf("  (%s)\n", agentwatcher.FormatSubagentSummary(event.Subagents)))
+	b.WriteString(fmt.Sprintf("  (%d running)\n", len(running)))
 
 	b.WriteString(fmt.Sprintf("\n%s\n%s %s", msg.FieldSeparator, msg.FieldFrom, config.AppName))
 	return b.String()

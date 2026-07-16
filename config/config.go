@@ -13,7 +13,7 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.1.3"
+const Version = "0.1.4"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
@@ -24,9 +24,10 @@ type MonitorConfig struct {
 	StuckRestartRetry       int             `yaml:"stuck_restart_retry"`
 	RunningStatusInterval   string          `yaml:"running_status_interval"`
 	SubagentRunningInterval string          `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
-	AutoContinue            bool            `yaml:"auto_continue"`
-	NotifyMinDuration       string          `yaml:"notify_min_duration"` // 最短任务通知时长，短于此时长完成的任务不发送通知
-	Events                  map[string]bool `yaml:"events,omitempty"`    // 事件开关映射，未列出的事件默认启用
+	AutoContinueKeyword     bool            `yaml:"auto_continue_keyword"`     // 匹配关键字自动继续（任务完成时检测"继续"/"continue"关键词）
+	AutoContinueSubagent    bool            `yaml:"auto_continue_subagent"`    // 子任务完成后自动继续（所有subagent完成且主agent空闲时触发）
+	NotifyMinDuration       string          `yaml:"notify_min_duration"`       // 最短任务通知时长，短于此时长完成的任务不发送通知
+	Events                  map[string]bool `yaml:"events,omitempty"`          // 事件开关映射，未列出的事件默认启用
 }
 
 // ProviderItem 单个通知供应商配置项
@@ -146,7 +147,8 @@ func DefaultConfig() *Config {
 			StuckRestartRetry:       5,
 			RunningStatusInterval:   "5m",
 			SubagentRunningInterval: "3m",
-			AutoContinue:            false,
+			AutoContinueKeyword:     false,
+			AutoContinueSubagent:    false,
 			NotifyMinDuration:       "30s",
 		},
 		Notifier: NotifierConfig{

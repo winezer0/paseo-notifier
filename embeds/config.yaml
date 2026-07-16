@@ -23,9 +23,13 @@ monitor:
   # subagent 持续运行通知间隔（Go time.Duration 格式），0s/false/空 = 禁用，默认 3m
   # 当 agent 的 subagent 持续运行超过此间隔时，定期发送运行状态通知
   subagent_running_interval: 3m
-  # 任务完成后自动继续（true/false，默认 false）
-  # 当 Agent 最后一条活动包含"继续"等关键词时，自动发送继续提示，适用于大模型询问"是否继续"的场景
-  auto_continue: false
+  # 匹配关键字自动继续（true/false，默认 false）
+  # Agent 任务完成后，若最后一条活动包含"继续"/"continue"等关键词或冒号结尾，自动发送继续提示
+  # 适用于大模型执行完一轮后询问"是否继续"的场景
+  auto_continue_keyword: false
+  # 子任务完成后自动继续（true/false，默认 false）
+  # 当所有 subagent 完成且主 agent 处于空闲状态时，自动发送继续提示唤醒主 Agent
+  auto_continue_subagent: false
   # 通知事件开关（可选，全部省略 = 所有事件启用）
   # 默认为 true，显式设为 false 可禁用该事件的通知
   events:           # 删除此行可恢复全量通知

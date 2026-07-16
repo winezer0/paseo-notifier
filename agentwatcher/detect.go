@@ -135,7 +135,7 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 		}
 
 		// 任务完成后自动继续：检查最后一条活动是否包含继续请求
-		if eventType == EventFinished && w.autoContinue && w.continuePrompt != "" {
+		if eventType == EventFinished && w.autoContinueKeyword && w.continuePrompt != "" {
 			if w.shouldAutoContinue(activityEntries, agent.ID) {
 				logging.Infof("auto continue agentId=%s", agent.ShortID)
 				if err := w.continueAgent(agent.ID, w.continuePrompt); err != nil {

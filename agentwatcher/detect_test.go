@@ -611,7 +611,7 @@ func TestSuppressDisabledWhenZero(t *testing.T) {
 func TestShouldAutoContinueByColon(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := testWatcher(notifier)
-	w.autoContinue = true
+	w.autoContinueKeyword = true
 	w.continuePrompt = "继续任务"
 
 	tests := []struct {

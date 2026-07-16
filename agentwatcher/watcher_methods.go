@@ -73,14 +73,10 @@ func (w *Watcher) setupSubagentTracking() {
 			}
 
 			// 子任务完成后自动继续：父 agent 处于 idle/finished 时触发
-			if w.autoContinue && w.continuePrompt != "" {
+			if w.autoContinueSubagent && w.subagentDoneContinuePrompt != "" {
 				if agent.Status == "idle" || (agent.AttentionReason != nil && *agent.AttentionReason == "finished") {
 					logging.Infof("auto continue after subagents agentId=%s status=%s", agent.ShortID, agent.Status)
-					prompt := w.subagentDoneContinuePrompt
-					if prompt == "" {
-						prompt = w.continuePrompt
-					}
-					if err := w.continueAgent(parentAgentID, prompt); err != nil {
+					if err := w.continueAgent(parentAgentID, w.subagentDoneContinuePrompt); err != nil {
 						logging.Warnf("auto continue after subagents failed agentId=%s err=%v", agent.ShortID, err)
 					} else {
 						acEv := AgentEvent{
