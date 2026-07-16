@@ -74,6 +74,15 @@ func (w *Watcher) setupSubagentTracking() {
 
 			// 子任务完成后自动继续：父 agent 处于 idle/finished 时触发
 			if w.autoContinueSubagent && w.subagentDoneContinuePrompt != "" {
+				w.mu.Lock()
+				if w.continueSent[parentAgentID] {
+					w.mu.Unlock()
+					logging.Infof("auto continue already sent agentId=%s, skipping", agent.ShortID)
+					return
+				}
+				w.continueSent[parentAgentID] = true
+				w.mu.Unlock()
+
 				if agent.Status == "idle" || (agent.AttentionReason != nil && *agent.AttentionReason == "finished") {
 					logging.Infof("auto continue after subagents agentId=%s status=%s", agent.ShortID, agent.Status)
 					if err := w.continueAgent(parentAgentID, w.subagentDoneContinuePrompt); err != nil {
@@ -95,8 +104,10 @@ func (w *Watcher) setupSubagentTracking() {
 		func(parentAgentID string, subagent ProviderSubagentStatus) {
 			agent := lookupAgent(parentAgentID)
 			// 预占位运行通知间隔，避免 spawn 后立即触发 running 通知
+			// 新 subagent 出现时重置 continueSent，确保新一轮任务完成后能再次触发自动继续
 			w.mu.Lock()
 			w.lastSubagentNotify[parentAgentID] = time.Now()
+			delete(w.continueSent, parentAgentID)
 			w.mu.Unlock()
 			ev := AgentEvent{
 				Type:      EventSubagentSpawned,

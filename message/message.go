@@ -446,16 +446,7 @@ func buildAllSubagentsDoneContent(event agentwatcher.AgentEvent, msg messages) s
 	var b strings.Builder
 	b.WriteString(buildAgentInfoSection(a, msg))
 
-	b.WriteString("\n" + msg.SectionSubagents + "\n")
-	for _, sa := range event.Subagents {
-		b.WriteString(fmt.Sprintf("  ✓ %s", sa.SubagentID))
-		if sa.Title != "" {
-			b.WriteString(fmt.Sprintf(" - %s", sa.Title))
-		}
-		appendStatusLabel(&b, sa.Status)
-		b.WriteString("\n")
-	}
-	b.WriteString(fmt.Sprintf("  (%d total)\n", len(event.Subagents)))
+	b.WriteString(fmt.Sprintf("\n%s: %d\n", msg.SectionSubagents, len(event.Subagents)))
 
 	// 提醒用户继续主 agent
 	b.WriteString(fmt.Sprintf("\n%s\n", msg.AllSubagentsDoneHint))

@@ -42,6 +42,7 @@ type Watcher struct {
 	wsClient                   *DaemonWSClient          // WebSocket 客户端，接收 provider subagent 推送
 	subagentTracker            *ProviderSubagentTracker // provider subagent 状态追踪
 	lastSubagentNotify         map[string]time.Time     // 上次发送 subagent 运行通知的时间（key=parentID）
+	continueSent               map[string]bool          // 已发送自动继续提示的 parent agent，防止重复发送
 	events                     map[string]bool          // 事件开关映射，空表示全部启用
 	startedAt                  time.Time
 }
@@ -81,6 +82,7 @@ func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stu
 		prevAgents:                 make(map[string]*AgentState),
 		prevPermIDs:                make(map[string]bool),
 		lastSubagentNotify:         make(map[string]time.Time),
+		continueSent:               make(map[string]bool),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
