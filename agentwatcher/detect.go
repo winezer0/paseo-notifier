@@ -73,16 +73,7 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 		if eventType == EventFinished && w.subagentTracker != nil && w.subagentTracker.HasRunningSubagents(agent.ID) {
 			logging.Infof("agent finished but has running subagents, suppressing notification agentId=%s", agent.ShortID)
 			// 仍更新状态快照，否则下次轮询会重复检测
-			// 保留 LastRunningNotify 以避免重复触发运行中状态通知
-			w.mu.Lock()
-			lastRunningNotify := prev.LastRunningNotify
-			w.prevAgents[agent.ID] = &AgentState{
-				AttentionReason:    agent.AttentionReason,
-				AttentionTimestamp: agent.AttentionTimestamp,
-				LastUpdatedAt:      agent.UpdatedAt,
-				LastRunningNotify:  lastRunningNotify,
-			}
-			w.mu.Unlock()
+			w.updateAgentSnapshot(agent, prev)
 			return
 		}
 
@@ -92,34 +83,17 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			if prev := w.getPrev(agent.ID); prev != nil && prev.LastUpdatedAt != "" {
 				if lastUpdate, err := time.Parse(time.RFC3339, prev.LastUpdatedAt); err == nil {
 					if idle := time.Since(lastUpdate); idle < w.notifyMinDuration {
-						logging.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s idle=%s",
-							agent.ShortID, idle)
-						w.mu.Lock()
-						lastRunningNotify := prev.LastRunningNotify
-						w.prevAgents[agent.ID] = &AgentState{
-							AttentionReason:    agent.AttentionReason,
-							AttentionTimestamp: agent.AttentionTimestamp,
-							LastUpdatedAt:      agent.UpdatedAt,
-							LastRunningNotify:  lastRunningNotify,
-						}
-						w.mu.Unlock()
-						return
+					logging.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s idle=%s",
+						agent.ShortID, idle)
+					w.updateAgentSnapshot(agent, prev)
+					return
 					}
 				}
 			}
 		}
 
 		// 在发通知前更新状态快照，解锁后 HTTP/通知不持锁
-		// 保留 LastRunningNotify 以避免重复触发运行中状态通知
-		w.mu.Lock()
-		lastRunningNotify := prev.LastRunningNotify
-		w.prevAgents[agent.ID] = &AgentState{
-			AttentionReason:    agent.AttentionReason,
-			AttentionTimestamp: agent.AttentionTimestamp,
-			LastUpdatedAt:      agent.UpdatedAt,
-			LastRunningNotify:  lastRunningNotify,
-		}
-		w.mu.Unlock()
+		w.updateAgentSnapshot(agent, prev)
 
 		// 用户取消/手动终止：仅记录日志，不发送通知
 		if eventType == EventCancelled {
@@ -168,6 +142,19 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 
 	prev.AttentionReason = agent.AttentionReason
 	prev.AttentionTimestamp = agent.AttentionTimestamp
+}
+
+// updateAgentSnapshot 更新 Agent 状态快照，保留 LastRunningNotify 避免重复触发运行中状态通知
+func (w *Watcher) updateAgentSnapshot(agent AgentStatus, prev *AgentState) {
+	w.mu.Lock()
+	lastRunningNotify := prev.LastRunningNotify
+	w.prevAgents[agent.ID] = &AgentState{
+		AttentionReason:    agent.AttentionReason,
+		AttentionTimestamp: agent.AttentionTimestamp,
+		LastUpdatedAt:      agent.UpdatedAt,
+		LastRunningNotify:  lastRunningNotify,
+	}
+	w.mu.Unlock()
 }
 
 // ──────────────────────────────────────────────────────────

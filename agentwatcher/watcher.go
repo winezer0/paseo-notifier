@@ -27,6 +27,7 @@ type Watcher struct {
 	notifyMinDuration          time.Duration // 短于此时长完成的任务不通知
 	runningStatusInterval      time.Duration
 	subagentRunningInterval    time.Duration // subagent 持续运行通知间隔
+	continueInterval           time.Duration // 自动继续节流间隔，同一agent在此间隔内不重复发送
 	notifier                   Notifier
 	sysNotifyFn                SystemNotifyFunc
 	connState                  ConnState
@@ -42,7 +43,7 @@ type Watcher struct {
 	wsClient                   *DaemonWSClient          // WebSocket 客户端，接收 provider subagent 推送
 	subagentTracker            *ProviderSubagentTracker // provider subagent 状态追踪
 	lastSubagentNotify         map[string]time.Time     // 上次发送 subagent 运行通知的时间（key=parentID）
-	continueSent               map[string]bool          // 已发送自动继续提示的 parent agent，防止重复发送
+	continueSent               map[string]time.Time     // 自动继续最后发送时间（key=parentID），节流防重发
 	events                     map[string]bool          // 事件开关映射，空表示全部启用
 	startedAt                  time.Time
 }
@@ -77,12 +78,13 @@ func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stu
 		notifyMinDuration:          cfg.NotifyMinDurationDuration(),
 		runningStatusInterval:      cfg.RunningStatusIntervalDuration(),
 		subagentRunningInterval:    cfg.SubagentRunningIntervalDuration(),
+		continueInterval:           cfg.ContinueIntervalDuration(),
 		notifier:                   notifier,
 		connState:                  ConnConnected,
 		prevAgents:                 make(map[string]*AgentState),
 		prevPermIDs:                make(map[string]bool),
 		lastSubagentNotify:         make(map[string]time.Time),
-		continueSent:               make(map[string]bool),
+		continueSent:               make(map[string]time.Time),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{

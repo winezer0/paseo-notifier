@@ -26,6 +26,7 @@ type MonitorConfig struct {
 	SubagentRunningInterval string          `yaml:"subagent_running_interval"` // subagent 持续运行通知间隔，默认 3m
 	AutoContinueKeyword     bool            `yaml:"auto_continue_keyword"`     // 匹配关键字自动继续（任务完成时检测"继续"/"continue"关键词）
 	AutoContinueSubagent    bool            `yaml:"auto_continue_subagent"`    // 子任务完成后自动继续（所有subagent完成且主agent空闲时触发）
+	ContinueInterval        string          `yaml:"continue_interval"`         // 自动继续节流间隔，同一agent在此间隔内不重复发送，默认 10s
 	NotifyMinDuration       string          `yaml:"notify_min_duration"`       // 最短任务通知时长，短于此时长完成的任务不发送通知
 	Events                  map[string]bool `yaml:"events,omitempty"`          // 事件开关映射，未列出的事件默认启用
 }
@@ -101,6 +102,15 @@ func (m *MonitorConfig) SubagentRunningIntervalDuration() time.Duration {
 	return 3 * time.Minute
 }
 
+// ContinueIntervalDuration 解析自动继续节流间隔，0 时返回默认 10s
+func (m *MonitorConfig) ContinueIntervalDuration() time.Duration {
+	d := parseDuration(m.ContinueInterval, "continue_interval")
+	if d > 0 {
+		return d
+	}
+	return 10 * time.Second
+}
+
 // NotifyMinDurationDuration 解析最短任务通知时长，短于此时长完成的任务不发送通知
 // 0 表示不抑制，默认 30s
 func (m *MonitorConfig) NotifyMinDurationDuration() time.Duration {
@@ -149,6 +159,7 @@ func DefaultConfig() *Config {
 			SubagentRunningInterval: "3m",
 			AutoContinueKeyword:     false,
 			AutoContinueSubagent:    false,
+			ContinueInterval:        "10s",
 			NotifyMinDuration:       "30s",
 		},
 		Notifier: NotifierConfig{
