@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // fetchAgents 调用 list_agents MCP 工具获取 Agent 列表
@@ -28,7 +28,7 @@ func (w *Watcher) fetchAgents() ([]AgentStatus, error) {
 	// debug: 打印 list_agents Content 长度，排查 archivedAt 缺失原因
 	for i, c := range result.Result.Content {
 		if c.Text != "" {
-			logging.Debugf("list_agents content[%d] type=%s len=%d", i, c.Type, len(c.Text))
+			zaplogs.Debugf("list_agents content[%d] type=%s len=%d", i, c.Type, len(c.Text))
 		}
 	}
 
@@ -63,13 +63,13 @@ func (w *Watcher) getAgentActivity(agentID string) []ActivityEntry {
 		"limit":   100, // 只取最近 100 条，减少数据量
 	})
 	if err != nil {
-		logging.Errorf("get_agent_activity failed agentId=%s err=%v", agentID, err)
+		zaplogs.Errorf("get_agent_activity failed agentId=%s err=%v", agentID, err)
 		return nil
 	}
 
 	var result agentActivityResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
-		logging.Warnf("parse agent activity response failed agentId=%s err=%v", agentID, err)
+		zaplogs.Warnf("parse agent activity response failed agentId=%s err=%v", agentID, err)
 		return nil
 	}
 
@@ -177,7 +177,7 @@ func (w *Watcher) getAgentStatus(agentID string) string {
 		"agentId": agentID,
 	}, 10*time.Second)
 	if err != nil {
-		logging.Warnf("get_agent_status failed agentId=%s err=%v", agentID, err)
+		zaplogs.Warnf("get_agent_status failed agentId=%s err=%v", agentID, err)
 		return ""
 	}
 
@@ -189,7 +189,7 @@ func (w *Watcher) getAgentStatus(agentID string) string {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(resp, &result); err != nil {
-		logging.Warnf("parse agent status failed agentId=%s err=%v", agentID, err)
+		zaplogs.Warnf("parse agent status failed agentId=%s err=%v", agentID, err)
 		return ""
 	}
 	if len(result.Result.Content) > 0 {
@@ -243,7 +243,7 @@ func (w *Watcher) createAgent(cwd, title, provider, initialPrompt string) (strin
 		return "", fmt.Errorf("create_agent response missing structuredContent: %s", string(resp))
 	}
 
-	logging.Infof("agent created agentId=%s title=%s", result.Result.StructuredContent.AgentID, title)
+	zaplogs.Infof("agent created agentId=%s title=%s", result.Result.StructuredContent.AgentID, title)
 	return result.Result.StructuredContent.AgentID, nil
 }
 
@@ -256,7 +256,7 @@ func (w *Watcher) sendAgentPrompt(agentID, prompt string) error {
 	if err != nil {
 		return fmt.Errorf("send_agent_prompt failed: %w", err)
 	}
-	logging.Infof("agent prompt sent agentId=%s", agentID)
+	zaplogs.Infof("agent prompt sent agentId=%s", agentID)
 	return nil
 }
 
@@ -268,7 +268,7 @@ func (w *Watcher) archiveAgent(agentID string) error {
 	if err != nil {
 		return fmt.Errorf("archive_agent failed: %w", err)
 	}
-	logging.Infof("agent archived agentId=%s", agentID)
+	zaplogs.Infof("agent archived agentId=%s", agentID)
 	return nil
 }
 
@@ -280,7 +280,7 @@ func (w *Watcher) cancelAgent(agentID string) error {
 	if err != nil {
 		return fmt.Errorf("cancel_agent failed: %w", err)
 	}
-	logging.Infof("agent cancelled agentId=%s", agentID)
+	zaplogs.Infof("agent cancelled agentId=%s", agentID)
 	return nil
 }
 
@@ -296,7 +296,7 @@ func (w *Watcher) continueAgent(agentID, prompt string) error {
 	if err != nil {
 		return fmt.Errorf("send_agent_prompt failed: %w", err)
 	}
-	logging.Infof("continue prompt sent agentId=%s", agentID)
+	zaplogs.Infof("continue prompt sent agentId=%s", agentID)
 	return nil
 }
 

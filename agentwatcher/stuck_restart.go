@@ -3,7 +3,7 @@ package agentwatcher
 import (
 	"time"
 
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // ──────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ func (w *Watcher) checkRecoveryBeforeRestart(agent AgentStatus) bool {
 
 	totalTimeout := w.stuckDetectTimeout + w.stuckRestartDelay
 	if lastActivityTime != nil && time.Since(*lastActivityTime) < totalTimeout {
-		logging.Debugf("agent recovered after stuck notification agentId=%s", agent.ShortID)
+		zaplogs.Debugf("agent recovered after stuck notification agentId=%s", agent.ShortID)
 		w.muRun(func() {
 			if p := w.prevAgents[agent.ID]; p != nil {
 				resetStuckState(p)
@@ -55,14 +55,14 @@ func (w *Watcher) tryRestartAgent(agent AgentStatus) bool {
 		if prev.RetryCount >= w.maxRetries {
 			prev.StuckActionTaken = true
 			exhausted = true
-			logging.Warnf("agent restart retries exhausted agentId=%s retry=%d/%d",
+			zaplogs.Warnf("agent restart retries exhausted agentId=%s retry=%d/%d",
 				agent.ShortID, prev.RetryCount, w.maxRetries)
 			return
 		}
-		logging.Warnf("agent restart retry %d/%d agentId=%s title=%s",
+		zaplogs.Warnf("agent restart retry %d/%d agentId=%s title=%s",
 			prev.RetryCount, w.maxRetries, agent.ShortID, agent.Title)
 		if err := w.restartAgent(agent.ID); err != nil {
-			logging.Errorf("restart retry failed agentId=%s err=%v", agent.ID, err)
+			zaplogs.Errorf("restart retry failed agentId=%s err=%v", agent.ID, err)
 		} else {
 			didSend = true
 		}
@@ -75,9 +75,9 @@ func (w *Watcher) tryRestartAgent(agent AgentStatus) bool {
 			Timestamp: time.Now(),
 		}
 		if err := w.notifier.Notify(w.ctx, ev); err != nil {
-			logging.Errorf("notify stuck continue failed agentId=%s err=%v", agent.ID, err)
+			zaplogs.Errorf("notify stuck continue failed agentId=%s err=%v", agent.ID, err)
 		} else {
-			logging.Infof("stuck continue notified agentId=%s", agent.ShortID)
+			zaplogs.Infof("stuck continue notified agentId=%s", agent.ShortID)
 		}
 	}
 	return exhausted
@@ -104,9 +104,9 @@ func (w *Watcher) sendStuckWarning(agent AgentStatus, now time.Time, idleDuratio
 			IdleDuration: idleDuration,
 		}
 		if err := w.notifier.Notify(w.ctx, ev); err != nil {
-			logging.Errorf("notify stuck warning failed agentId=%s err=%v", agent.ID, err)
+			zaplogs.Errorf("notify stuck warning failed agentId=%s err=%v", agent.ID, err)
 		} else {
-			logging.Infof("stuck warning sent agentId=%s idle=%s", agent.ShortID, idleDuration)
+			zaplogs.Infof("stuck warning sent agentId=%s idle=%s", agent.ShortID, idleDuration)
 		}
 	}
 }
@@ -148,9 +148,9 @@ func (w *Watcher) handleStillActive(agent AgentStatus, now time.Time, idleDurati
 			IdleDuration:    idleDuration,
 		}
 		if err := w.notifier.Notify(w.ctx, ev); err != nil {
-			logging.Errorf("notify still active failed agentId=%s err=%v", agent.ID, err)
+			zaplogs.Errorf("notify still active failed agentId=%s err=%v", agent.ID, err)
 		} else {
-			logging.Infof("still active notified agentId=%s entries=%d", agent.ShortID, len(entries))
+			zaplogs.Infof("still active notified agentId=%s entries=%d", agent.ShortID, len(entries))
 		}
 	}
 	w.muRun(func() {
@@ -163,7 +163,7 @@ func (w *Watcher) handleStillActive(agent AgentStatus, now time.Time, idleDurati
 // sendStuckNotification 发送确认卡死通知
 func (w *Watcher) sendStuckNotification(agent AgentStatus, now time.Time, entries []ActivityEntry) {
 	if prev := w.getPrev(agent.ID); prev != nil && prev.StuckNotified {
-		logging.Warnf("agent may be stuck agentId=%s title=%s idleSince=%s", agent.ShortID, agent.Title, prev.StuckSince)
+		zaplogs.Warnf("agent may be stuck agentId=%s title=%s idleSince=%s", agent.ShortID, agent.Title, prev.StuckSince)
 		ev := AgentEvent{
 			Type:            EventStuck,
 			Agent:           agent,
@@ -171,7 +171,7 @@ func (w *Watcher) sendStuckNotification(agent AgentStatus, now time.Time, entrie
 			ActivityEntries: entries,
 		}
 		if err := w.notifier.Notify(w.ctx, ev); err != nil {
-			logging.Errorf("notify stuck failed agentId=%s err=%v", agent.ID, err)
+			zaplogs.Errorf("notify stuck failed agentId=%s err=%v", agent.ID, err)
 		}
 	}
 }
@@ -227,9 +227,9 @@ func (w *Watcher) detectNewPermission(perm PermissionRequest) {
 			},
 		}
 		if err := w.notifier.Notify(w.ctx, ev); err != nil {
-			logging.Errorf("notify permission failed agentId=%s kind=%s err=%v", perm.AgentID, perm.Request.Kind, err)
+			zaplogs.Errorf("notify permission failed agentId=%s kind=%s err=%v", perm.AgentID, perm.Request.Kind, err)
 		} else {
-			logging.Infof("permission request detected agentId=%s kind=%s title=%s", perm.AgentID, perm.Request.Kind, perm.Request.Title)
+			zaplogs.Infof("permission request detected agentId=%s kind=%s title=%s", perm.AgentID, perm.Request.Kind, perm.Request.Title)
 		}
 	}()
 }

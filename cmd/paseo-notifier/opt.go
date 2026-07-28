@@ -7,15 +7,15 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"github.com/winezer0/paseo-notifier/config"
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // cliOptions 命令行参数
 type cliOptions struct {
-	Config     string `short:"c" long:"config" description:"config file path" value-name:"FILE"`
-	Init       bool   `short:"i" long:"init" description:"print default config and exit"`
-	Version    bool   `short:"v" long:"version" description:"print version and exit"`
-	
+	Config  string `short:"c" long:"config" description:"config file path" value-name:"FILE"`
+	Init    bool   `short:"i" long:"init" description:"print default config and exit"`
+	Version bool   `short:"v" long:"version" description:"print version and exit"`
+
 	LogFile    string `long:"lf" description:"Log file path"`
 	LogLevel   string `long:"ll" description:"Log level: allowed debug/info/warn/error"`
 	LogConsole string `long:"lc" description:"Log format for console, supported T(time),L(level),C(caller),F(func),M(Msg), Turn off when empty or (off)"`
@@ -62,7 +62,7 @@ func printServiceHelp() {
 }
 
 // mergeLogConfig 合并日志配置，CLI 参数显式设置时使用 CLI，否则使用配置文件
-func mergeLogConfig(opts *cliOptions, cfg *config.Config) logging.LogConfig {
+func mergeLogConfig(opts *cliOptions, cfg *config.Config) zaplogs.LogConfig {
 	logFile := config.DefaultLogPath()
 	logLevel := "info"
 	consoleFormat := "TLCM"
@@ -89,5 +89,5 @@ func mergeLogConfig(opts *cliOptions, cfg *config.Config) logging.LogConfig {
 			consoleFormat = cfg.Common.LogConsole
 		}
 	}
-	return logging.NewLogConfig(logLevel, logFile, consoleFormat)
+	return zaplogs.NewLogConfig(logLevel, logFile, consoleFormat)
 }

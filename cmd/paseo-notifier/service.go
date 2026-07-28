@@ -8,8 +8,8 @@ import (
 	"github.com/nikoksr/notify"
 	"github.com/winezer0/paseo-notifier/agentwatcher"
 	"github.com/winezer0/paseo-notifier/config"
-	"github.com/winezer0/paseo-notifier/logging"
 	"github.com/winezer0/paseo-notifier/message"
+	"github.com/winezer0/zaplogs"
 )
 
 // serviceActions 服务管理命令列表
@@ -35,7 +35,7 @@ func (p *program) Start(s service.Service) error {
 	for i, pr := range p.cfg.Notifier.Providers {
 		providerTypes[i] = pr.Type
 	}
-	logging.Infof("config loaded daemon=%s interval=%s notifier_providers=%v language=%s version=%s",
+	zaplogs.Infof("config loaded daemon=%s interval=%s notifier_providers=%v language=%s version=%s",
 		p.cfg.Monitor.DaemonURL, p.cfg.Monitor.Interval,
 		providerTypes, p.cfg.Common.Language, config.Version)
 
@@ -62,7 +62,7 @@ func (p *program) Start(s service.Service) error {
 			fmt.Println("===========================")
 			fmt.Println()
 			if err := notify.Send(context.Background(), subject, content); err != nil {
-				logging.Errorf("system notify failed: %v", err)
+				zaplogs.Errorf("system notify failed: %v", err)
 			}
 		})
 	}
@@ -80,9 +80,9 @@ func (p *program) Stop(s service.Service) error {
 		return nil
 	}
 
-	logging.Info("shutting down...")
+	zaplogs.Info("shutting down...")
 	p.watcher.Stop()
-	_ = logging.Sync() // best-effort，Windows 下 stdout 句柄可能已关闭
-	logging.Info("stopped")
+	_ = zaplogs.Sync() // best-effort，Windows 下 stdout 句柄可能已关闭
+	zaplogs.Info("stopped")
 	return nil
 }

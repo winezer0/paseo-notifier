@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // providerSubagentStatusList 状态列表请求载荷
@@ -114,7 +114,7 @@ func (t *ProviderSubagentTracker) HandleSubagentUpdate(payload json.RawMessage) 
 		}
 		updateCopy := update
 		t.subagents[k] = &updateCopy
-		logging.Debugf("provider_subagent new parent=%s sub=%s status=%s title=%s",
+		zaplogs.Debugf("provider_subagent new parent=%s sub=%s status=%s title=%s",
 			update.ParentAgentID, update.SubagentID, update.Status, update.Title)
 
 		if !t.spawnNotified[update.ParentAgentID] {
@@ -139,7 +139,7 @@ func (t *ProviderSubagentTracker) HandleSubagentUpdate(payload json.RawMessage) 
 		existing.Title = update.Title
 		existing.Model = update.Model
 		existing.Provider = update.Provider
-		logging.Debugf("provider_subagent status parent=%s sub=%s %s→%s",
+		zaplogs.Debugf("provider_subagent status parent=%s sub=%s %s→%s",
 			update.ParentAgentID, update.SubagentID, existing.Status, update.Status)
 	}
 
@@ -168,7 +168,7 @@ func (t *ProviderSubagentTracker) HandleSubagentUpdate(payload json.RawMessage) 
 func (t *ProviderSubagentTracker) HandleSubagentList(payload json.RawMessage) {
 	var resp providerSubagentStatusListResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
-		logging.Debugf("provider_subagent parse list response failed: %v", err)
+		zaplogs.Debugf("provider_subagent parse list response failed: %v", err)
 		return
 	}
 
@@ -296,7 +296,7 @@ func (t *ProviderSubagentTracker) checkAllDoneLocked(parentID string) (bool, []P
 		notifiedSet[sa.SubagentID] = true
 	}
 
-	logging.Infof("provider_subagent all done parent=%s total=%d new=%d", parentID, len(notifiedSet), len(newSubs))
+	zaplogs.Infof("provider_subagent all done parent=%s total=%d new=%d", parentID, len(notifiedSet), len(newSubs))
 	return true, newSubs
 }
 

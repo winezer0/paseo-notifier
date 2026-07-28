@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,7 +13,7 @@ import (
 const AppName = "paseo-notifier"
 const appConfig = AppName + ".yaml"
 const appLogPath = AppName + ".log"
-const Version = "0.1.4"
+const Version = "0.1.5"
 
 // MonitorConfig 监控相关配置
 type MonitorConfig struct {
@@ -64,7 +64,7 @@ type Config struct {
 func (m *MonitorConfig) IntervalDuration() time.Duration {
 	d, err := time.ParseDuration(m.Interval)
 	if err != nil {
-		logging.Warnf("invalid monitor interval, falling back to 5s value=%s err=%v", m.Interval, err)
+		zaplogs.Warnf("invalid monitor interval, falling back to 5s value=%s err=%v", m.Interval, err)
 		return 5 * time.Second
 	}
 	return d
@@ -128,11 +128,11 @@ func parseDuration(raw, field string) time.Duration {
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil {
-		logging.Warnf("invalid %s, falling back to 0 value=%s err=%v", field, raw, err)
+		zaplogs.Warnf("invalid %s, falling back to 0 value=%s err=%v", field, raw, err)
 		return 0
 	}
 	if d < 0 {
-		logging.Warnf("negative %s, falling back to 0 value=%s", field, raw)
+		zaplogs.Warnf("negative %s, falling back to 0 value=%s", field, raw)
 		return 0
 	}
 	return d

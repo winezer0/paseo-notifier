@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/winezer0/paseo-notifier/config"
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // Watcher 通过 MCP API 轮询监控 Agent 状态，通过 WebSocket 追踪 subagent 完成
@@ -21,9 +21,9 @@ type Watcher struct {
 	maxRetries                 int
 	continuePrompt             string
 	stuckContinuePrompt        string
-	subagentDoneContinuePrompt string // 子任务全部完成后发送给主 agent 的继续提示
-	autoContinueKeyword        bool   // 匹配关键字自动继续
-	autoContinueSubagent       bool   // 子任务完成后自动继续
+	subagentDoneContinuePrompt string        // 子任务全部完成后发送给主 agent 的继续提示
+	autoContinueKeyword        bool          // 匹配关键字自动继续
+	autoContinueSubagent       bool          // 子任务完成后自动继续
 	notifyMinDuration          time.Duration // 短于此时长完成的任务不通知
 	runningStatusInterval      time.Duration
 	subagentRunningInterval    time.Duration // subagent 持续运行通知间隔
@@ -55,12 +55,12 @@ func NewWatcher(cfg config.MonitorConfig, notifier Notifier, continuePrompt, stu
 	// 兼容旧配置：自动剥离 /mcp/agents 后缀，统一为基础地址
 	baseURL := normalizeDaemonURL(cfg.DaemonURL)
 	if baseURL != cfg.DaemonURL {
-		logging.Infof("daemon URL normalized: %s → %s", cfg.DaemonURL, baseURL)
+		zaplogs.Infof("daemon URL normalized: %s → %s", cfg.DaemonURL, baseURL)
 	}
 
 	wsClient, err := NewDaemonWSClient(baseURL)
 	if err != nil {
-		logging.Warnf("failed to create ws client: %v, subagent tracking disabled", err)
+		zaplogs.Warnf("failed to create ws client: %v, subagent tracking disabled", err)
 	}
 
 	return &Watcher{
@@ -156,7 +156,7 @@ func (w *Watcher) nextID() int {
 
 // Start 开始轮询监控和 WebSocket 连接
 func (w *Watcher) Start() {
-	logging.Infof("agent watcher started daemon=%s interval=%s", w.daemonURL, w.interval)
+	zaplogs.Infof("agent watcher started daemon=%s interval=%s", w.daemonURL, w.interval)
 
 	// 启动 provider subagent 追踪
 	w.setupSubagentTracking()
@@ -177,7 +177,7 @@ func (w *Watcher) Start() {
 			case <-ticker.C:
 				w.pollOnce()
 			case <-w.done:
-				logging.Info("agent watcher stopped")
+				zaplogs.Info("agent watcher stopped")
 				return
 			}
 		}
@@ -214,7 +214,7 @@ func (w *Watcher) pollOnce() {
 
 	disconnected := agentsErr != nil
 	if !disconnected && permsErr != nil {
-		logging.Warnf("fetch permissions failed: %v", permsErr)
+		zaplogs.Warnf("fetch permissions failed: %v", permsErr)
 	}
 
 	w.handleConnState(disconnected)

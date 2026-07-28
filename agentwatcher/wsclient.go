@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // reconnectionBackoff 重连退避策略
@@ -146,7 +146,7 @@ func (c *DaemonWSClient) connectLoop() {
 		}
 
 		if err := c.connectAndRead(); err != nil {
-			logging.Warnf("ws disconnected: %v", err)
+			zaplogs.Warnf("ws disconnected: %v", err)
 		}
 
 		if c.onDisconnect != nil {
@@ -158,7 +158,7 @@ func (c *DaemonWSClient) connectLoop() {
 		if backoffIdx < len(reconnectionBackoff)-1 {
 			backoffIdx++
 		}
-		logging.Infof("ws reconnecting in %s (attempt %d)", delay, backoffIdx)
+		zaplogs.Infof("ws reconnecting in %s (attempt %d)", delay, backoffIdx)
 
 		select {
 		case <-c.ctx.Done():
@@ -182,20 +182,20 @@ func (c *DaemonWSClient) connectAndRead() error {
 	c.conn = conn
 	c.mu.Unlock()
 
-		// 发送 Hello 声明 protocol version 和 capability
-		hello := helloMessage{
-			Type:            "hello",
-			ProtocolVersion: 1,
-			ClientID:        "paseo-notifier",
-			ClientType:      "cli",
-			Capabilities:    map[string]bool{"provider_subagents": true},
-		}
-		if err := conn.WriteJSON(hello); err != nil {
-			conn.Close()
-			return fmt.Errorf("ws hello: %w", err)
-		}
+	// 发送 Hello 声明 protocol version 和 capability
+	hello := helloMessage{
+		Type:            "hello",
+		ProtocolVersion: 1,
+		ClientID:        "paseo-notifier",
+		ClientType:      "cli",
+		Capabilities:    map[string]bool{"provider_subagents": true},
+	}
+	if err := conn.WriteJSON(hello); err != nil {
+		conn.Close()
+		return fmt.Errorf("ws hello: %w", err)
+	}
 
-	logging.Infof("ws connected daemon=%s", c.wsURL)
+	zaplogs.Infof("ws connected daemon=%s", c.wsURL)
 
 	// 通知上层连接成功
 	if c.onConnect != nil {
@@ -214,7 +214,7 @@ func (c *DaemonWSClient) connectAndRead() error {
 		_, rawMsg, err := conn.ReadMessage()
 		if err != nil {
 			if closeErr, ok := err.(*websocket.CloseError); ok {
-				logging.Debugf("ws closed code=%d text=%q", closeErr.Code, closeErr.Text)
+				zaplogs.Debugf("ws closed code=%d text=%q", closeErr.Code, closeErr.Text)
 			}
 			conn.Close()
 			return fmt.Errorf("ws read: %w", err)
@@ -226,7 +226,7 @@ func (c *DaemonWSClient) connectAndRead() error {
 			// 非 session 信封，按原始消息处理
 			var msg WSMessage
 			if err := json.Unmarshal(rawMsg, &msg); err != nil {
-				logging.Debugf("ws skip unparseable message: %s", string(rawMsg))
+				zaplogs.Debugf("ws skip unparseable message: %s", string(rawMsg))
 				continue
 			}
 			handlers := c.getHandlers()
@@ -239,7 +239,7 @@ func (c *DaemonWSClient) connectAndRead() error {
 		// 解包内层消息
 		var inner sessionInner
 		if err := json.Unmarshal(env.Message, &inner); err != nil {
-			logging.Debugf("ws skip unparseable inner message: %s", string(env.Message))
+			zaplogs.Debugf("ws skip unparseable inner message: %s", string(env.Message))
 			continue
 		}
 

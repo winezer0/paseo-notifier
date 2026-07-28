@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // detectAgentChange 检测 Agent 的 attentionReason 变更（finished/error）
@@ -62,7 +62,7 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			case "cancelled":
 				eventType = EventCancelled
 			default:
-				logging.Warnf("unknown attentionReason=%q agentId=%s, treating as finished", *agent.AttentionReason, agent.ShortID)
+				zaplogs.Warnf("unknown attentionReason=%q agentId=%s, treating as finished", *agent.AttentionReason, agent.ShortID)
 				eventType = EventFinished
 			}
 		}
@@ -71,7 +71,7 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 	if eventType != "" {
 		// 已完成但还有子任务在运行 → 父 agent 只是委派了工作，不算真正完成
 		if eventType == EventFinished && w.subagentTracker != nil && w.subagentTracker.HasRunningSubagents(agent.ID) {
-			logging.Infof("agent finished but has running subagents, suppressing notification agentId=%s", agent.ShortID)
+			zaplogs.Infof("agent finished but has running subagents, suppressing notification agentId=%s", agent.ShortID)
 			// 仍更新状态快照，否则下次轮询会重复检测
 			w.updateAgentSnapshot(agent, prev)
 			return
@@ -83,10 +83,10 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			if prev := w.getPrev(agent.ID); prev != nil && prev.LastUpdatedAt != "" {
 				if lastUpdate, err := time.Parse(time.RFC3339, prev.LastUpdatedAt); err == nil {
 					if idle := time.Since(lastUpdate); idle < w.notifyMinDuration {
-					logging.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s idle=%s",
-						agent.ShortID, idle)
-					w.updateAgentSnapshot(agent, prev)
-					return
+						zaplogs.Infof("agent finished within notify_min_duration, suppressing notification agentId=%s idle=%s",
+							agent.ShortID, idle)
+						w.updateAgentSnapshot(agent, prev)
+						return
 					}
 				}
 			}
@@ -97,7 +97,7 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 
 		// 用户取消/手动终止：仅记录日志，不发送通知
 		if eventType == EventCancelled {
-			logging.Infof("agent cancelled by user agentId=%s title=%s", agent.ShortID, agent.Title)
+			zaplogs.Infof("agent cancelled by user agentId=%s title=%s", agent.ShortID, agent.Title)
 			return
 		}
 
@@ -111,17 +111,17 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 			ActivityEntries: activityEntries,
 		}
 		if err := w.notifier.Notify(w.ctx, ev); err != nil {
-			logging.Errorf("notify failed event=%s agentId=%s err=%v", eventType, agent.ID, err)
+			zaplogs.Errorf("notify failed event=%s agentId=%s err=%v", eventType, agent.ID, err)
 		} else {
-			logging.Infof("agent event detected event=%s agentId=%s title=%s entries=%d", eventType, agent.ShortID, agent.Title, len(activityEntries))
+			zaplogs.Infof("agent event detected event=%s agentId=%s title=%s entries=%d", eventType, agent.ShortID, agent.Title, len(activityEntries))
 		}
 
 		// 任务完成后自动继续：检查最后一条活动是否包含继续请求
 		if eventType == EventFinished && w.autoContinueKeyword && w.continuePrompt != "" {
 			if w.shouldAutoContinue(activityEntries, agent.ID) {
-				logging.Infof("auto continue agentId=%s", agent.ShortID)
+				zaplogs.Infof("auto continue agentId=%s", agent.ShortID)
 				if err := w.continueAgent(agent.ID, w.continuePrompt); err != nil {
-					logging.Warnf("auto continue failed agentId=%s err=%v", agent.ShortID, err)
+					zaplogs.Warnf("auto continue failed agentId=%s err=%v", agent.ShortID, err)
 				} else {
 					// 发送自动继续通知
 					acEv := AgentEvent{
@@ -130,7 +130,7 @@ func (w *Watcher) detectAgentChange(agent AgentStatus) {
 						Timestamp: time.Now(),
 					}
 					if err := w.notifier.Notify(w.ctx, acEv); err != nil {
-						logging.Errorf("notify auto continue failed agentId=%s err=%v", agent.ID, err)
+						zaplogs.Errorf("notify auto continue failed agentId=%s err=%v", agent.ID, err)
 					}
 				}
 			}
@@ -276,7 +276,7 @@ func (w *Watcher) runStuckCheck(agent AgentStatus, stuckSince time.Time) {
 		agent = *latest
 		if agent.ArchivedAt != nil || agent.Status != "running" ||
 			(agent.AttentionReason != nil && (*agent.AttentionReason == "finished" || *agent.AttentionReason == "error")) {
-			logging.Infof("agent no longer running, aborting stuck check agentId=%s status=%s reason=%v",
+			zaplogs.Infof("agent no longer running, aborting stuck check agentId=%s status=%s reason=%v",
 				agent.ShortID, agent.Status, agent.AttentionReason)
 			return
 		}
@@ -343,7 +343,7 @@ func (w *Watcher) shouldAutoContinue(entries []ActivityEntry, agentID string) bo
 
 	// 冒号结尾检测：原始文本以冒号结尾（可能后跟空白），说明 Agent 输出被截断
 	if hasTrailingColon(summary) {
-		logging.Debugf("auto continue triggered by trailing colon agentId=%s summary=%q", agentID, summary)
+		zaplogs.Debugf("auto continue triggered by trailing colon agentId=%s summary=%q", agentID, summary)
 		return true
 	}
 
@@ -352,13 +352,13 @@ func (w *Watcher) shouldAutoContinue(entries []ActivityEntry, agentID string) bo
 
 	// 中文关键词：清理后文本取末尾5字符匹配
 	if hit, kw, tail := matchTailKeywords(trim, 10, continueKeywordsZh); hit {
-		logging.Debugf("auto continue triggered by zh keyword=%q tailZh=%q agentId=%s", kw, tail, agentID)
+		zaplogs.Debugf("auto continue triggered by zh keyword=%q tailZh=%q agentId=%s", kw, tail, agentID)
 		return true
 	}
 
 	// 英文关键词：清理后文本取末尾20字符匹配
 	if hit, kw, tail := matchTailKeywords(trim, 20, continueKeywordsEn); hit {
-		logging.Debugf("auto continue triggered by en keyword=%q tailEn=%q agentId=%s", kw, tail, agentID)
+		zaplogs.Debugf("auto continue triggered by en keyword=%q tailEn=%q agentId=%s", kw, tail, agentID)
 		return true
 	}
 

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/winezer0/paseo-notifier/agentwatcher"
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // EventFilterNotifier 装饰器：按事件类型开关过滤通知
@@ -16,7 +16,7 @@ type EventFilterNotifier struct {
 // Notify 实现 agentwatcher.Notifier，过滤未启用的事件
 func (n *EventFilterNotifier) Notify(ctx context.Context, event agentwatcher.AgentEvent) error {
 	if !IsEventEnabled(n.enabled, event.Type) {
-		logging.Debugf("notification disabled by config event=%s agent=%s", event.Type, event.Agent.ShortID)
+		zaplogs.Debugf("notification disabled by config event=%s agent=%s", event.Type, event.Agent.ShortID)
 		return nil
 	}
 	return n.inner.Notify(ctx, event)

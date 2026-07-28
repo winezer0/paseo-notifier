@@ -17,7 +17,7 @@ import (
 
 	"github.com/kardianos/service"
 	"github.com/winezer0/paseo-notifier/config"
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 func main() {
@@ -45,17 +45,17 @@ func main() {
 	// 前台运行 / 服务运行
 	if action == "" || action == "run" {
 		cfg := initConfigAndLogger(opts)
-		defer logging.Sync()
+		defer zaplogs.Sync()
 
 		prg := &program{cfg: cfg}
 		s, err := service.New(prg, svcConfig)
 		if err != nil {
-			logging.Errorf("create service failed: %v", err)
+			zaplogs.Errorf("create service failed: %v", err)
 			os.Exit(1)
 		}
 
 		if err := s.Run(); err != nil {
-			logging.Errorf("service run failed: %v", err)
+			zaplogs.Errorf("service run failed: %v", err)
 			os.Exit(1)
 		}
 	} else {
@@ -66,25 +66,25 @@ func main() {
 			os.Exit(1)
 		}
 
-		consoleCfg := logging.NewLogConfig("info", "", "T L C M")
-		if err := logging.InitDefaultLogger(consoleCfg); err != nil {
+		consoleCfg := zaplogs.NewLogConfig("info", "", "T L C M")
+		if err := zaplogs.InitDefaultLogger(consoleCfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 			os.Exit(1)
 		}
-		defer logging.Sync()
+		defer zaplogs.Sync()
 
 		prg := &program{}
 		s, err := service.New(prg, svcConfig)
 		if err != nil {
-			logging.Errorf("create service failed: %v", err)
+			zaplogs.Errorf("create service failed: %v", err)
 			os.Exit(1)
 		}
 
 		if err := service.Control(s, action); err != nil {
-			logging.Errorf("service control failed: %v", err)
+			zaplogs.Errorf("service control failed: %v", err)
 			os.Exit(1)
 		}
-		logging.Infof("service %s completed successfully", action)
+		zaplogs.Infof("service %s completed successfully", action)
 	}
 }
 
@@ -97,7 +97,7 @@ func initConfigAndLogger(opts *cliOptions) *config.Config {
 	}
 
 	logCfg := mergeLogConfig(opts, cfg)
-	if err := logging.InitDefaultLogger(logCfg); err != nil {
+	if err := zaplogs.InitDefaultLogger(logCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}

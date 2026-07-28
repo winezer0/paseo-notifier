@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // isEventEnabled 检查事件是否启用（未配置默认启用）
@@ -67,9 +67,9 @@ func (w *Watcher) setupSubagentTracking() {
 				Subagents: subagents,
 			}
 			if err := w.notifier.Notify(w.ctx, ev); err != nil {
-				logging.Errorf("notify all subagents done failed agentId=%s err=%v", parentAgentID, err)
+				zaplogs.Errorf("notify all subagents done failed agentId=%s err=%v", parentAgentID, err)
 			} else {
-				logging.Infof("all subagents done notified agentId=%s count=%d", agent.ShortID, len(subagents))
+				zaplogs.Infof("all subagents done notified agentId=%s count=%d", agent.ShortID, len(subagents))
 			}
 
 			// 子任务完成后自动继续：父 agent 空闲时立即发送，running 时延迟重试（10s 窗口）
@@ -93,9 +93,9 @@ func (w *Watcher) setupSubagentTracking() {
 				Subagents: []ProviderSubagentStatus{subagent},
 			}
 			if err := w.notifier.Notify(w.ctx, ev); err != nil {
-				logging.Errorf("notify subagent spawned failed agentId=%s err=%v", parentAgentID, err)
+				zaplogs.Errorf("notify subagent spawned failed agentId=%s err=%v", parentAgentID, err)
 			} else {
-				logging.Infof("subagent spawned notified agentId=%s sub=%s", agent.ShortID, subagent.SubagentID)
+				zaplogs.Infof("subagent spawned notified agentId=%s sub=%s", agent.ShortID, subagent.SubagentID)
 			}
 		},
 	)
@@ -116,7 +116,7 @@ func (w *Watcher) setupSubagentTracking() {
 			}
 			msg := BuildListRequest(fmt.Sprintf("list-%s-%d", a.ID, time.Now().UnixNano()), a.ID)
 			if err := w.wsClient.Send(msg); err != nil {
-				logging.Debugf("ws request subagent list failed agentId=%s err=%v", a.ShortID, err)
+				zaplogs.Debugf("ws request subagent list failed agentId=%s err=%v", a.ShortID, err)
 			}
 		}
 	})
@@ -148,27 +148,27 @@ func (w *Watcher) triggerAutoContinueAfterSubagents(parentAgentID string, agent 
 	w.mu.Lock()
 	if lastSent, exists := w.continueSent[parentAgentID]; exists && now.Sub(lastSent) < w.continueInterval {
 		w.mu.Unlock()
-		logging.Infof("auto continue throttled agentId=%s remaining=%s", agent.ShortID, w.continueInterval-now.Sub(lastSent))
+		zaplogs.Infof("auto continue throttled agentId=%s remaining=%s", agent.ShortID, w.continueInterval-now.Sub(lastSent))
 		return
 	}
 	w.mu.Unlock()
 
 	// 立即发送条件
 	if agent.Status == "idle" || (agent.AttentionReason != nil && *agent.AttentionReason == "finished") {
-		logging.Infof("auto continue after subagents agentId=%s status=%s", agent.ShortID, agent.Status)
+		zaplogs.Infof("auto continue after subagents agentId=%s status=%s", agent.ShortID, agent.Status)
 		w.doAutoContinue(parentAgentID, agent)
 		return
 	}
 
 	// running 状态：启动延迟重试 goroutine
 	if agent.Status == "running" {
-		logging.Infof("auto continue deferred agentId=%s status=running timeout=%s", agent.ShortID, autoContinueRetryWindow)
+		zaplogs.Infof("auto continue deferred agentId=%s status=running timeout=%s", agent.ShortID, autoContinueRetryWindow)
 		go w.retryAutoContinue(parentAgentID, agent.ShortID)
 		return
 	}
 
 	// 其他状态（archived/unknown 等）：不发
-	logging.Infof("auto continue skipped agentId=%s status=%s", agent.ShortID, agent.Status)
+	zaplogs.Infof("auto continue skipped agentId=%s status=%s", agent.ShortID, agent.Status)
 }
 
 // retryAutoContinue 在 autoContinueRetryWindow 内持续检测 agent 状态，
@@ -181,31 +181,31 @@ func (w *Watcher) retryAutoContinue(parentAgentID string, shortID string) {
 	for {
 		select {
 		case <-w.ctx.Done():
-			logging.Infof("auto continue retry cancelled (watcher stopping) agentId=%s", shortID)
+			zaplogs.Infof("auto continue retry cancelled (watcher stopping) agentId=%s", shortID)
 			return
 		case <-timeout:
-			logging.Warnf("auto continue retry timeout agentId=%s", shortID)
+			zaplogs.Warnf("auto continue retry timeout agentId=%s", shortID)
 			return
 		case <-ticker.C:
 			// 检查是否有新 subagent 出现，有则放弃本次重试
 			if w.subagentTracker != nil && w.subagentTracker.HasRunningSubagents(parentAgentID) {
-				logging.Infof("auto continue retry aborted (new subagents running) agentId=%s", shortID)
+				zaplogs.Infof("auto continue retry aborted (new subagents running) agentId=%s", shortID)
 				return
 			}
 
 			agent := w.fetchAgentStatus(parentAgentID)
 			if agent == nil {
 				// fetch 失败（网络抖动/断连等）不放弃，等下一轮 tick 重试
-				logging.Warnf("auto continue retry fetch failed agentId=%s, will retry", shortID)
+				zaplogs.Warnf("auto continue retry fetch failed agentId=%s, will retry", shortID)
 				continue
 			}
 			if agent.Status == "idle" || (agent.AttentionReason != nil && *agent.AttentionReason == "finished") {
-				logging.Infof("auto continue retry success agentId=%s status=%s", shortID, agent.Status)
+				zaplogs.Infof("auto continue retry success agentId=%s status=%s", shortID, agent.Status)
 				w.doAutoContinue(parentAgentID, *agent)
 				return
 			}
 			if agent.ArchivedAt != nil {
-				logging.Infof("auto continue retry agent archived agentId=%s", shortID)
+				zaplogs.Infof("auto continue retry agent archived agentId=%s", shortID)
 				return
 			}
 		}
@@ -215,7 +215,7 @@ func (w *Watcher) retryAutoContinue(parentAgentID string, shortID string) {
 // doAutoContinue 执行实际的 continue prompt 发送和通知
 func (w *Watcher) doAutoContinue(parentAgentID string, agent AgentStatus) {
 	if err := w.continueAgent(parentAgentID, w.subagentDoneContinuePrompt); err != nil {
-		logging.Warnf("auto continue after subagents failed agentId=%s err=%v", agent.ShortID, err)
+		zaplogs.Warnf("auto continue after subagents failed agentId=%s err=%v", agent.ShortID, err)
 		return
 	}
 	// 成功后记录时间戳，启动节流
@@ -229,7 +229,7 @@ func (w *Watcher) doAutoContinue(parentAgentID string, agent AgentStatus) {
 		Timestamp: time.Now(),
 	}
 	if err := w.notifier.Notify(w.ctx, acEv); err != nil {
-		logging.Errorf("notify auto continue after subagents failed agentId=%s err=%v", parentAgentID, err)
+		zaplogs.Errorf("notify auto continue after subagents failed agentId=%s err=%v", parentAgentID, err)
 	}
 }
 
@@ -287,9 +287,9 @@ func (w *Watcher) checkRunningAgents(agents []AgentStatus) {
 				Subagents:       subagents,
 			}
 			if err := w.notifier.Notify(w.ctx, ev); err != nil {
-				logging.Errorf("notify running status failed agentId=%s err=%v", agent.ID, err)
+				zaplogs.Errorf("notify running status failed agentId=%s err=%v", agent.ID, err)
 			} else {
-				logging.Infof("running status notified agentId=%s title=%s idle=%s", agent.ShortID, agent.Title, sinceLastUser)
+				zaplogs.Infof("running status notified agentId=%s title=%s idle=%s", agent.ShortID, agent.Title, sinceLastUser)
 			}
 		}(agent)
 	}
@@ -326,9 +326,9 @@ func (w *Watcher) shouldSkipStuckCheck(agent AgentStatus) bool {
 }
 
 func (w *Watcher) sendDisconnectedNotify() {
-	logging.Warn("mcp daemon disconnected, agent notifications paused")
+	zaplogs.Warn("mcp daemon disconnected, agent notifications paused")
 	if !w.isEventEnabled(EventDisconnect) {
-		logging.Debug("disconnect notification disabled by config")
+		zaplogs.Debug("disconnect notification disabled by config")
 		return
 	}
 	if w.sysNotifyFn != nil {
@@ -337,9 +337,9 @@ func (w *Watcher) sendDisconnectedNotify() {
 }
 
 func (w *Watcher) sendReconnectedNotify() {
-	logging.Info("mcp daemon reconnected, agent notifications resumed")
+	zaplogs.Info("mcp daemon reconnected, agent notifications resumed")
 	if !w.isEventEnabled(EventReconnect) {
-		logging.Debug("reconnect notification disabled by config")
+		zaplogs.Debug("reconnect notification disabled by config")
 		return
 	}
 	if w.sysNotifyFn != nil {
@@ -380,9 +380,9 @@ func (w *Watcher) checkRunningSubagents() {
 				Subagents: subagents,
 			}
 			if err := w.notifier.Notify(w.ctx, ev); err != nil {
-				logging.Errorf("notify subagent running failed agentId=%s err=%v", pid, err)
+				zaplogs.Errorf("notify subagent running failed agentId=%s err=%v", pid, err)
 			} else {
-				logging.Infof("subagent running notified agentId=%s running=%d", agent.ShortID, len(subagents))
+				zaplogs.Infof("subagent running notified agentId=%s running=%d", agent.ShortID, len(subagents))
 			}
 		}(parentID)
 	}

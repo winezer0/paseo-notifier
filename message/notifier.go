@@ -8,7 +8,7 @@ import (
 	"github.com/nikoksr/notify"
 	"github.com/winezer0/paseo-notifier/agentwatcher"
 	"github.com/winezer0/paseo-notifier/config"
-	"github.com/winezer0/paseo-notifier/logging"
+	"github.com/winezer0/zaplogs"
 )
 
 // BuildNotifier 根据配置构建通知器。
@@ -18,7 +18,7 @@ import (
 func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	providers := cfg.Notifier.Providers
 	if len(providers) == 0 {
-		logging.Info("no notifier configured, events will be logged only")
+		zaplogs.Info("no notifier configured, events will be logged only")
 		return &NoopNotifier{}
 	}
 
@@ -26,22 +26,22 @@ func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 	for _, p := range providers {
 		factory, ok := GetProvider(p.Type)
 		if !ok {
-			logging.Warnf("unknown provider type, skipping type=%s", p.Type)
+			zaplogs.Warnf("unknown provider type, skipping type=%s", p.Type)
 			continue
 		}
 
 		svc, err := factory(p.Config)
 		if err != nil {
-			logging.Warnf("failed to build provider, skipping type=%s err=%v", p.Type, err)
+			zaplogs.Warnf("failed to build provider, skipping type=%s err=%v", p.Type, err)
 			continue
 		}
 
 		services = append(services, svc)
-		logging.Infof("notification provider enabled type=%s", p.Type)
+		zaplogs.Infof("notification provider enabled type=%s", p.Type)
 	}
 
 	if len(services) == 0 {
-		logging.Info("no valid providers, events will be logged only")
+		zaplogs.Info("no valid providers, events will be logged only")
 		return &NoopNotifier{}
 	}
 
@@ -52,12 +52,12 @@ func BuildNotifier(cfg *config.Config) agentwatcher.Notifier {
 // SendStartupNotification 发送启动通知，仅当通知器非 NoopNotifier 时实际发送
 func SendStartupNotification(notifier agentwatcher.Notifier, events map[string]bool) {
 	if !IsEventEnabled(events, agentwatcher.EventStartup) {
-		logging.Info("startup notification disabled by config")
+		zaplogs.Info("startup notification disabled by config")
 		return
 	}
 	msg := getMessages(currentLang)
 	if _, ok := notifier.(*NoopNotifier); ok {
-		logging.Info("startup notification skipped (no external notifier configured)")
+		zaplogs.Info("startup notification skipped (no external notifier configured)")
 		return
 	}
 	subject := fmt.Sprintf(msg.SubjectStartup, config.AppName)
@@ -69,9 +69,9 @@ func SendStartupNotification(notifier agentwatcher.Notifier, events map[string]b
 	fmt.Println("====================")
 	fmt.Println()
 	if err := notify.Send(context.Background(), subject, content); err != nil {
-		logging.Warnf("startup notification failed: %v", err)
+		zaplogs.Warnf("startup notification failed: %v", err)
 	} else {
-		logging.Info("startup notification sent")
+		zaplogs.Info("startup notification sent")
 	}
 }
 
