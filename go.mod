@@ -8,7 +8,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/kardianos/service v1.2.4
 	github.com/nikoksr/notify v1.5.0
-	github.com/winezer0/zaplogs v0.0.2
+	github.com/winezer0/zaplogs v0.1.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
