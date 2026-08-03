@@ -66,7 +66,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		consoleCfg := zaplogs.NewLogConfig("info", "", "T L C M")
+		consoleCfg := zaplogs.NewConfig("info", "", "T L C M")
 		if err := zaplogs.InitDefaultLogger(consoleCfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 			os.Exit(1)

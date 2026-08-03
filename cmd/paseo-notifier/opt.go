@@ -89,5 +89,5 @@ func mergeLogConfig(opts *cliOptions, cfg *config.Config) zaplogs.LogConfig {
 			consoleFormat = cfg.Common.LogConsole
 		}
 	}
-	return zaplogs.NewLogConfig(logLevel, logFile, consoleFormat)
+	return zaplogs.NewConfig(logLevel, logFile, consoleFormat)
 }
