@@ -51,7 +51,10 @@ func TestSubagentParentOutsideList(t *testing.T) {
 			if event == "heartbeat" {
 				n.events = nil
 				n.done = make(chan struct{}, 1)
-				w.subagentRunningInterval = time.Nanosecond
+				w.subagentRunningInterval = time.Second
+				w.mu.Lock()
+				delete(w.lastSubagentNotify, parent)
+				w.mu.Unlock()
 				w.checkRunningSubagents()
 				select {
 				case <-n.done:
