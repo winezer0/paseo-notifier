@@ -42,24 +42,14 @@ func (w *Watcher) setupSubagentTracking() {
 		return
 	}
 
-	// 共享的 agent 查找函数，避免每处重复 fetchAgents
-	lookupAgent := func(agentID string) AgentStatus {
-		agents, err := w.fetchAgents()
-		if err != nil {
-			return AgentStatus{ID: agentID, ShortID: agentID}
-		}
-		for _, a := range agents {
-			if a.ID == agentID {
-				return a
-			}
-		}
-		return AgentStatus{ID: agentID, ShortID: agentID}
-	}
-
 	w.subagentTracker = NewProviderSubagentTracker(
 		// 全部完成回调
 		func(parentAgentID string, subagents []ProviderSubagentStatus) {
-			agent := lookupAgent(parentAgentID)
+			agent, err := w.fetchParentAgent(parentAgentID)
+			if err != nil {
+				zaplogs.Errorf("parent lookup failed event=%s parentAgentId=%s subagentCount=%d err=%v", EventAllSubagentsDone, parentAgentID, len(subagents), err)
+				return
+			}
 			ev := AgentEvent{
 				Type:      EventAllSubagentsDone,
 				Agent:     agent,
@@ -79,7 +69,11 @@ func (w *Watcher) setupSubagentTracking() {
 		},
 		// 首个 subagent 出现回调
 		func(parentAgentID string, subagent ProviderSubagentStatus) {
-			agent := lookupAgent(parentAgentID)
+			agent, err := w.fetchParentAgent(parentAgentID)
+			if err != nil {
+				zaplogs.Errorf("parent lookup failed event=%s parentAgentId=%s subagentId=%s err=%v", EventSubagentSpawned, parentAgentID, subagent.SubagentID, err)
+				return
+			}
 			// 预占位运行通知间隔，避免 spawn 后立即触发 running 通知
 			// 新 subagent 出现时重置 continueSent，确保新一轮任务完成后能再次触发自动继续
 			w.mu.Lock()
@@ -371,7 +365,11 @@ func (w *Watcher) checkRunningSubagents() {
 		w.mu.Unlock()
 
 		go func(pid string) {
-			agent := w.lookupAgent(pid)
+			agent, err := w.fetchParentAgent(pid)
+			if err != nil {
+				zaplogs.Errorf("parent lookup failed event=%s parentAgentId=%s err=%v", EventSubagentRunning, pid, err)
+				return
+			}
 			subagents := w.subagentTracker.GetByParent(pid)
 			ev := AgentEvent{
 				Type:      EventSubagentRunning,
@@ -386,20 +384,6 @@ func (w *Watcher) checkRunningSubagents() {
 			}
 		}(parentID)
 	}
-}
-
-// lookupAgent 查找 agent 信息（fetchAgents 失败时返回仅有 ID 的占位 AgentStatus）
-func (w *Watcher) lookupAgent(agentID string) AgentStatus {
-	agents, err := w.fetchAgents()
-	if err != nil {
-		return AgentStatus{ID: agentID, ShortID: agentID}
-	}
-	for _, a := range agents {
-		if a.ID == agentID {
-			return a
-		}
-	}
-	return AgentStatus{ID: agentID, ShortID: agentID}
 }
 
 // fetchAgentStatus 重新获取指定 Agent 的最新状态
